@@ -4,7 +4,7 @@ CC      = gcc
 CFLAGS  = -Wall -Wextra -O2 -Ilib/raylib/src
 LDFLAGS = -Llib/raylib/src -lraylib -lGL -lm -lpthread -ldl -lrt -lX11
 
-SRC     = $(wildcard src/*.c)
+SRC     = $(shell find src -name '*.c')
 BIN     = one-tap
 
 RAYLIB_A = lib/raylib/src/libraylib.a

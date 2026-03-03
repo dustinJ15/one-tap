@@ -107,24 +107,23 @@ Key behavior: in the air you have very little ability to change direction (low a
 - [x] FPS counter displayed (top-left, DrawFPS)
 - [x] Makefile builds raylib static lib then links one-tap binary
 - [x] Extra X11 deps needed on Fedora: `libXrandr-devel libXinerama-devel libXcursor-devel libXi-devel libXext-devel`
-- [ ] **Checkpoint:** blank window opens, FPS counter visible, closes cleanly (pending user confirmation)
+- [x] **Checkpoint:** blank window opens, FPS counter visible, closes cleanly ✓
 
 ### Milestone 2 — CS-Style Movement
-- [ ] `src/physics/movement.c`: player state struct (position, velocity, on_ground, crouching)
-- [ ] Ground movement with acceleration and friction
-- [ ] Air movement with CS air acceleration values
-- [ ] Gravity
-- [ ] Jumping (single jump, no double jump)
-- [ ] Crouching (speed penalty, height change)
-- [ ] Mouse look (pitch + yaw, pitch clamped)
-- [ ] No world geometry yet — player moves in an infinite void
-- [ ] **Checkpoint:** movement in void feels like CS — snappy ground, deliberate air, crouching works
+- [x] `src/physics/movement.c`: player state struct (position, velocity, on_ground, crouching)
+- [x] Ground movement with acceleration and friction
+- [x] Air movement with CS air acceleration values
+- [x] Gravity
+- [x] Jumping (single jump, no double jump)
+- [x] Crouching (speed penalty, height change)
+- [x] Mouse look (pitch + yaw, pitch clamped)
+- [x] No world geometry yet — player moves in an infinite void
+- [x] **Checkpoint:** movement in void feels like CS — snappy ground, deliberate air, crouching works ✓
 
 ### Milestone 3 — Walk Around a Room
-- [ ] `src/render/renderer.c`: basic 3D rendering setup (perspective camera from raylib)
-- [ ] `src/render/map.c`: hardcoded room geometry (a box with a few obstacles — no file format yet)
-- [ ] AABB collision detection: player vs walls, floor, ceiling
-- [ ] **Checkpoint:** player can walk around a box room, collision works, nothing clips through walls
+- [x] `src/render/map.c`: hardcoded room geometry (800x800x160, 2 crates, pillar, low platform)
+- [x] AABB collision detection: player vs walls, floor, ceiling, obstacles
+- [x] **Checkpoint:** player can walk around a box room, collision works, nothing clips through walls ✓
 
 ### Milestone 4 — Shoot Something
 - [ ] `src/game/weapons.c`: one hitscan weapon
@@ -197,6 +196,8 @@ Key behavior: in the air you have very little ability to change direction (low a
 | 2026-02-26 | Vibecodeing approach, one milestone at a time | Developer preference, keeps scope manageable |
 | 2026-02-26 | Minimal visuals intentional | Performance goal + aesthetic preference (picmip CS look) |
 | 2026-02-26 | Hardcoded geometry for milestone 3 | Get walking first, map format is a separate problem |
+| 2026-03-03 | Milestone 1 confirmed working on Fedora 43 | mesa-libGL-devel + libXrandr/Xinerama/Xcursor/Xi/Xext-devel required |
+| 2026-03-03 | Milestone 2 + 3 complete | CS movement values in movement.h, AABB collision in map.c (SAT pushout, 3-pass, ground check) |
 
 ---
 
@@ -213,7 +214,8 @@ Key behavior: in the air you have very little ability to change direction (low a
 
 ## Build
 
-Not yet set up. Will be a simple Makefile linking raylib. Target: `make` produces `./one-tap` binary.
+`make` — builds raylib (first time only) then links `./one-tap`. Sources picked up automatically via `find src -name '*.c'`.
+Fedora deps: `sudo dnf install mesa-libGL-devel libXrandr-devel libXinerama-devel libXcursor-devel libXi-devel libXext-devel`
 
 ## Resources
 
