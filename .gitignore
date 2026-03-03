@@ -1,0 +1,4 @@
+one-tap
+*.o
+*.a
+lib/raylib/src/*.o

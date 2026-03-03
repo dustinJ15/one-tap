@@ -1,0 +1,223 @@
+# AI Context — One-Tap
+
+This file is written for AI assistants working on this project. Read it before touching any code.
+Update it whenever significant decisions are made, milestones are completed, or the design changes.
+
+---
+
+## What This Project Is
+
+One-Tap is a Counter-Strike-inspired tactical shooter written in C, built on raylib.
+The goal is not a feature-rich modern game. The goal is to recreate the specific feel of old-school Counter-Strike:
+- CS-authentic movement (air acceleration, crouch mechanics, no abilities)
+- Round-based 5v5 with economy (buy menu, kill rewards)
+- Bomb defusal win condition
+- Minimal visuals — flat textures, simple geometry, intentionally low-fidelity
+- 1000+ FPS on any modern machine
+
+The developer is vibecodeing this project — building iteratively, milestone by milestone.
+**Keep suggestions focused and achievable. Do not over-engineer. Do not add features outside the current milestone.**
+
+---
+
+## Stack
+
+- **Language:** C
+- **Foundation:** raylib (https://raylib.com) — window creation, input handling, OpenGL draw calls, audio
+  - raylib is a library, not a framework. You call it; it does nothing you didn't ask.
+  - Every game system above raylib is written from scratch: physics, networking, renderer, game logic.
+  - raylib goes in `lib/raylib/` as a git submodule.
+- **No engine.** No Quake. No Yamagi. The developer owns every line above the library level.
+
+### Why not id Tech 2 / Yamagi?
+We started with Yamagi Quake II but switched. Yamagi is ~150k lines of C the developer doesn't own or understand. raylib is a thin, transparent library that does only what you ask. The game code above it is 100% ours.
+
+---
+
+## Project Structure
+
+```
+one-tap/
+├── src/
+│   ├── main.c               # entry point, game loop
+│   ├── game/                # round system, economy, weapons, teams
+│   ├── physics/             # CS-style movement math
+│   ├── render/              # world geometry, player rendering, HUD
+│   ├── net/                 # UDP networking, player sync
+│   └── audio/               # sound effects wrapper around raylib audio
+│
+├── lib/
+│   └── raylib/              # raylib source (git submodule)
+│
+├── content/
+│   ├── maps/                # map files (format TBD, milestone 10)
+│   ├── textures/            # flat textures, solid colors
+│   ├── sounds/              # weapon sounds, footsteps, etc.
+│   └── models/              # player/weapon geometry (later milestones)
+│
+├── tools/
+│   ├── trenchbroom/         # Trenchbroom game config (milestone 10+)
+│   └── scripts/             # build helpers
+│
+└── docs/
+    ├── game-design.md
+    └── movement-tuning.md
+```
+
+---
+
+## Key Source Files (will grow as milestones are completed)
+
+| File | Role |
+|------|------|
+| `src/main.c` | Game loop, init, shutdown |
+| `src/physics/movement.c` | CS-style air acceleration, ground friction, crouch, gravity |
+| `src/render/renderer.c` | World and player rendering |
+| `src/render/map.c` | Map geometry loading and draw |
+| `src/net/net.c` | UDP socket send/recv, player state sync |
+| `src/game/round.c` | Round timer, win conditions, restart |
+| `src/game/economy.c` | Money, kill rewards, buy menu |
+| `src/game/weapons.c` | Weapon stats, hitscan, spread |
+
+---
+
+## CS Movement Reference Values
+
+These are the target values for milestone 2. All movement code goes in `src/physics/movement.c`.
+
+| Parameter | CS 1.6 value | Notes |
+|-----------|-------------|-------|
+| Ground speed | 250 units/s | Max run speed |
+| Crouch speed | 68 units/s | While crouching |
+| Ground accel | 5.6 | How fast you reach max speed |
+| Air accel | 10 | Very low — intentional, gives CS its feel |
+| Friction | 4 | Ground friction coefficient |
+| Gravity | 800 units/s² | Standard |
+| Jump velocity | 268 units/s | Upward velocity on jump |
+
+Key behavior: in the air you have very little ability to change direction (low air accel = 10), but you can strafe jump to maintain speed. This is what makes CS feel like CS and not Quake.
+
+---
+
+## Milestone Tracker
+
+### Milestone 1 — Window + Game Loop
+- [x] Add raylib as git submodule in `lib/raylib/`
+- [x] Write `src/main.c`: init window, game loop, close
+- [x] FPS counter displayed (top-left, DrawFPS)
+- [x] Makefile builds raylib static lib then links one-tap binary
+- [x] Extra X11 deps needed on Fedora: `libXrandr-devel libXinerama-devel libXcursor-devel libXi-devel libXext-devel`
+- [ ] **Checkpoint:** blank window opens, FPS counter visible, closes cleanly (pending user confirmation)
+
+### Milestone 2 — CS-Style Movement
+- [ ] `src/physics/movement.c`: player state struct (position, velocity, on_ground, crouching)
+- [ ] Ground movement with acceleration and friction
+- [ ] Air movement with CS air acceleration values
+- [ ] Gravity
+- [ ] Jumping (single jump, no double jump)
+- [ ] Crouching (speed penalty, height change)
+- [ ] Mouse look (pitch + yaw, pitch clamped)
+- [ ] No world geometry yet — player moves in an infinite void
+- [ ] **Checkpoint:** movement in void feels like CS — snappy ground, deliberate air, crouching works
+
+### Milestone 3 — Walk Around a Room
+- [ ] `src/render/renderer.c`: basic 3D rendering setup (perspective camera from raylib)
+- [ ] `src/render/map.c`: hardcoded room geometry (a box with a few obstacles — no file format yet)
+- [ ] AABB collision detection: player vs walls, floor, ceiling
+- [ ] **Checkpoint:** player can walk around a box room, collision works, nothing clips through walls
+
+### Milestone 4 — Shoot Something
+- [ ] `src/game/weapons.c`: one hitscan weapon
+- [ ] Raycast from player view direction using collision vs world geometry
+- [ ] Spread value (simple random in cone)
+- [ ] Bullet hole decal on hit surface
+- [ ] Gunshot sound (raylib audio)
+- [ ] **Checkpoint:** fire a weapon, hit walls, see and hear the result
+
+### Milestone 5 — Two Players (LAN/Localhost)
+- [ ] `src/net/net.c`: UDP socket setup, send/recv
+- [ ] Player state packet: position, angles, team, health
+- [ ] Server/client model (one player hosts, one joins)
+- [ ] Remote player rendered as a simple box or capsule
+- [ ] Shooting hits remote players
+- [ ] **Checkpoint:** two clients connect, see each other, can shoot each other
+
+### Milestone 6 — Rounds
+- [ ] `src/game/round.c`: round timer (1:55 default)
+- [ ] Team assignment (CT / T) on connect
+- [ ] Team-aware spawn points (hardcoded per map for now)
+- [ ] Death: player becomes spectator until round ends, no respawn
+- [ ] Win condition: all enemies eliminated
+- [ ] Round end → scoreboard → round restart
+- [ ] **Checkpoint:** full round loop works — timer, death, win condition, new round
+
+### Milestone 7 — Economy
+- [ ] `src/game/economy.c`: money per player (persists between rounds)
+- [ ] Kill reward: +$300
+- [ ] Round win: +$3250 / Round loss: +$1400 (with loss bonus streak)
+- [ ] Buy phase at round start (first 15 seconds)
+- [ ] Console buy command: `buy <weapon>`
+- [ ] Starting pistol always available for free
+- [ ] **Checkpoint:** money accumulates across rounds, can buy weapons
+
+### Milestone 8 — Weapon Arsenal
+- [ ] Pistol (free, always — Glock/USP style)
+- [ ] T rifle (AK-style: high damage, one-tap to head, higher spread)
+- [ ] CT rifle (M4-style: lower damage, lower spread, faster fire)
+- [ ] Sniper (AWP-style: one-shot kill body, slow movement while scoped)
+- [ ] Each weapon: damage, spread, fire rate, price, ammo count
+- [ ] Ammo runs out, can buy more
+- [ ] **Checkpoint:** weapon choice has real strategic tradeoff
+
+### Milestone 9 — Bomb Objective
+- [ ] Bomb item: spawns on a T-side player each round
+- [ ] Bomb sites: two marked zones in the map
+- [ ] Plant: hold USE at bomb site for 3 seconds
+- [ ] Detonate: 35 seconds after plant, T wins
+- [ ] Defuse: hold USE at bomb for 10 seconds (5 with kit), CT wins
+- [ ] Defuse kit: purchasable item for CTs
+- [ ] **Checkpoint:** full CT vs T objective loop works
+
+### Milestone 10 — Real Map + Trenchbroom Workflow
+- [ ] Design a simple map file format (or parse Quake .map brush format)
+- [ ] Map loader in `src/render/map.c`
+- [ ] Set up Trenchbroom with One-Tap game config
+- [ ] Build a proper two-bombsite map (de_ style): two routes, two sites, distinct areas
+- [ ] Spawn points and bombsite zones defined in map file
+- [ ] **Checkpoint:** a round on a real map feels like Counter-Strike
+
+---
+
+## Design Decisions Log
+
+| Date | Decision | Reason |
+|------|----------|--------|
+| 2026-02-26 | Use id Tech 2 / Yamagi as engine base | Initial choice — same lineage as GoldSrc/CS |
+| 2026-02-26 | Switch to raylib + write everything | Developer wants to own every line of code above library level. Yamagi is 150k lines of black box. |
+| 2026-02-26 | Vibecodeing approach, one milestone at a time | Developer preference, keeps scope manageable |
+| 2026-02-26 | Minimal visuals intentional | Performance goal + aesthetic preference (picmip CS look) |
+| 2026-02-26 | Hardcoded geometry for milestone 3 | Get walking first, map format is a separate problem |
+
+---
+
+## Conventions and Preferences
+
+- Developer is vibecodeing — keep AI suggestions focused on the current milestone only
+- Do not suggest refactors or improvements outside the current task
+- Prefer editing existing files over creating new ones
+- C is the primary language
+- No over-engineering — the simplest implementation that passes the milestone checkpoint wins
+- When in doubt about movement values, reference the CS Movement Reference table above
+
+---
+
+## Build
+
+Not yet set up. Will be a simple Makefile linking raylib. Target: `make` produces `./one-tap` binary.
+
+## Resources
+
+- raylib docs: https://www.raylib.com/cheatsheet/cheatsheet.html
+- raylib GitHub: https://github.com/raysan5/raylib
+- CS 1.6 movement breakdown: search "CS 1.6 bhop mechanics air acceleration"
+- Trenchbroom docs (milestone 10): https://trenchbroom.github.io/manual/latest
