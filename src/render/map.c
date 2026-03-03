@@ -6,6 +6,68 @@
 #define ROOM_D     400   /* half-depth in Z */
 #define ROOM_H     160   /* full height */
 
+/*
+ * Slab method ray vs AABB. Returns true on hit with t > 0.
+ * hit_normal is the outward face normal of the entry face.
+ */
+static bool ray_aabb(Vector3 o, Vector3 d, Vector3 bmin, Vector3 bmax,
+                     float *t_out, Vector3 *normal_out)
+{
+    float    tmin = 0.001f;   /* small bias avoids self-intersection */
+    float    tmax = 1e30f;
+    Vector3  n    = { 0 };
+
+    for (int ax = 0; ax < 3; ax++) {
+        float oa, da, lo, hi;
+        if      (ax == 0) { oa = o.x; da = d.x; lo = bmin.x; hi = bmax.x; }
+        else if (ax == 1) { oa = o.y; da = d.y; lo = bmin.y; hi = bmax.y; }
+        else              { oa = o.z; da = d.z; lo = bmin.z; hi = bmax.z; }
+
+        if (fabsf(da) < 1e-8f) {
+            if (oa < lo || oa > hi) return false;
+        } else {
+            float t1   = (lo - oa) / da;
+            float t2   = (hi - oa) / da;
+            float sign = 1.0f;
+            if (t1 > t2) { float tmp = t1; t1 = t2; t2 = tmp; sign = -1.0f; }
+            if (t1 > tmin) {
+                tmin = t1;
+                n = (Vector3){ 0 };
+                if      (ax == 0) n.x = -sign;
+                else if (ax == 1) n.y = -sign;
+                else              n.z = -sign;
+            }
+            if (t2 < tmax) tmax = t2;
+            if (tmin > tmax) return false;
+        }
+    }
+
+    *t_out     = tmin;
+    *normal_out = n;
+    return true;
+}
+
+RayHit map_raycast(const Map *m, Vector3 origin, Vector3 dir)
+{
+    RayHit closest = { false, {0,0,0}, {0,0,0}, 1e30f };
+
+    for (int i = 0; i < m->count; i++) {
+        float   t;
+        Vector3 normal;
+        if (ray_aabb(origin, dir, m->boxes[i].min, m->boxes[i].max, &t, &normal)) {
+            if (t < closest.t) {
+                closest.hit    = true;
+                closest.t      = t;
+                closest.point  = (Vector3){ origin.x + dir.x * t,
+                                            origin.y + dir.y * t,
+                                            origin.z + dir.z * t };
+                closest.normal = normal;
+            }
+        }
+    }
+    return closest;
+}
+
 static bool boxes_overlap(Vector3 amin, Vector3 amax, Vector3 bmin, Vector3 bmax)
 {
     return amin.x < bmax.x && amax.x > bmin.x &&

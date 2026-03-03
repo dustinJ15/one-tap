@@ -126,12 +126,12 @@ Key behavior: in the air you have very little ability to change direction (low a
 - [x] **Checkpoint:** player can walk around a box room, collision works, nothing clips through walls ✓
 
 ### Milestone 4 — Shoot Something
-- [ ] `src/game/weapons.c`: one hitscan weapon
-- [ ] Raycast from player view direction using collision vs world geometry
-- [ ] Spread value (simple random in cone)
-- [ ] Bullet hole decal on hit surface
-- [ ] Gunshot sound (raylib audio)
-- [ ] **Checkpoint:** fire a weapon, hit walls, see and hear the result
+- [x] `src/game/weapons.c`: hitscan pistol, procedural gunshot sound
+- [x] `map_raycast()` in map.c: slab-method ray vs AABB, returns hit point + face normal
+- [x] Spread value (random yaw/pitch offset in cone)
+- [x] Bullet hole decals: thin dark slab rendered flush to hit surface
+- [x] Gunshot sound: procedural white noise with exponential decay via raylib audio
+- [x] **Checkpoint:** fire a weapon, hit walls, see and hear the result ✓
 
 ### Milestone 5 — Two Players (LAN/Localhost)
 - [ ] `src/net/net.c`: UDP socket setup, send/recv
