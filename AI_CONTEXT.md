@@ -70,14 +70,16 @@ one-tap/
 
 | File | Role |
 |------|------|
-| `src/main.c` | Game loop, init, shutdown |
-| `src/physics/movement.c` | CS-style air acceleration, ground friction, crouch, gravity |
-| `src/render/renderer.c` | World and player rendering |
-| `src/render/map.c` | Map geometry loading and draw |
-| `src/net/net.c` | UDP socket send/recv, player state sync |
-| `src/game/round.c` | Round timer, win conditions, restart |
-| `src/game/economy.c` | Money, kill rewards, buy menu |
-| `src/game/weapons.c` | Weapon stats, hitscan, spread |
+| `src/main.c` | Game loop, arg parsing (`--server`/`--connect`), input → PlayerInput, net wiring |
+| `src/physics/movement.h` | `PlayerInput` struct, `PlayerState` (includes `health`), movement constants |
+| `src/physics/movement.c` | CS-style air acceleration, ground friction, crouch, gravity — input-decoupled |
+| `src/render/map.c` | Map geometry, AABB collision, `map_raycast`, `map_ray_hits_box` |
+| `src/net/net.h` | Packet structs (`PktInput`=27B, `PktWorld`=185B), `NetClient`, constants |
+| `src/net/net.c` | Client: connect handshake, `send_input`, `recv` drain loop, disconnect |
+| `src/net/server.c` | Headless server: 64 Hz loop, recv/tick/send_world, hitscan hit detection |
+| `src/game/weapons.c` | Weapon stats, hitscan, spread, procedural gunshot sound |
+| `src/game/round.c` | Round timer, win conditions, restart (milestone 6) |
+| `src/game/economy.c` | Money, kill rewards, buy menu (milestone 7) |
 
 ---
 
@@ -134,12 +136,16 @@ Key behavior: in the air you have very little ability to change direction (low a
 - [x] **Checkpoint:** fire a weapon, hit walls, see and hear the result ✓
 
 ### Milestone 5 — Two Players (LAN/Localhost)
-- [ ] `src/net/net.c`: UDP socket setup, send/recv
-- [ ] Player state packet: position, angles, team, health
-- [ ] Server/client model (one player hosts, one joins)
-- [ ] Remote player rendered as a simple box or capsule
-- [ ] Shooting hits remote players
-- [ ] **Checkpoint:** two clients connect, see each other, can shoot each other
+- [x] Dedicated server model — same binary, `--server` / `--connect` flags
+- [x] `PlayerInput` struct decouples input from physics; `player_update` takes `const PlayerInput *`
+- [x] `src/net/net.h`: packed packet structs (PktConnect/Accept/Input/World/Disconnect), NetClient
+- [x] `src/net/net.c`: UDP client — SO_RCVTIMEO handshake (25 retries), O_NONBLOCK game loop
+- [x] `src/net/server.c`: headless 64 Hz server, recv/tick/send_world, SIGINT shutdown
+- [x] Client-authoritative position: x/y/z sent in PktInput, server trusts it (avoids sim divergence)
+- [x] Server-authoritative hit detection: ray vs wall + ray vs player box, 34 dmg, respawn on death
+- [x] Remote player rendered as 32×72×32 RED box; HP HUD shows server-reported health
+- [x] Offline mode (`./one-tap` no flags) unchanged
+- [x] **Checkpoint:** two clients connect, see each other move, can shoot each other (3 hits to kill), kill logged on server ✓
 
 ### Milestone 6 — Rounds
 - [ ] `src/game/round.c`: round timer (1:55 default)
@@ -166,6 +172,7 @@ Key behavior: in the air you have very little ability to change direction (low a
 - [ ] Sniper (AWP-style: one-shot kill body, slow movement while scoped)
 - [ ] Each weapon: damage, spread, fire rate, price, ammo count
 - [ ] Ammo runs out, can buy more
+- [ ] **First-shot accuracy:** first shot should be perfectly accurate (or near-perfect) when standing still — spread only kicks in on subsequent shots and resets after a cooldown. Developer has ideas about tuning this per-weapon.
 - [ ] **Checkpoint:** weapon choice has real strategic tradeoff
 
 ### Milestone 9 — Bomb Objective
@@ -198,6 +205,10 @@ Key behavior: in the air you have very little ability to change direction (low a
 | 2026-02-26 | Hardcoded geometry for milestone 3 | Get walking first, map format is a separate problem |
 | 2026-03-03 | Milestone 1 confirmed working on Fedora 43 | mesa-libGL-devel + libXrandr/Xinerama/Xcursor/Xi/Xext-devel required |
 | 2026-03-03 | Milestone 2 + 3 complete | CS movement values in movement.h, AABB collision in map.c (SAT pushout, 3-pass, ground check) |
+| 2026-03-03 | Milestone 4 complete | Hitscan pistol, map_raycast slab method, bullet hole decals, procedural gunshot sound |
+| 2026-03-03 | Milestone 5: dedicated server model | Same binary, --server runs headless; avoids NAT issues, server is authoritative for health/kills |
+| 2026-03-03 | Milestone 5: client-authoritative position | Server trusts x/y/z from PktInput — avoids parallel physics divergence. Health/hit-detection stay server-side. Acceptable for LAN prototype. |
+| 2026-03-03 | Milestone 5: PlayerInput decoupling | Removed all raylib input calls from movement.c; player_update now takes const PlayerInput*. Required for server to drive player physics without a window. |
 
 ---
 

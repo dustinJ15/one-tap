@@ -4,6 +4,15 @@
 #include "raylib.h"
 #include <stdbool.h>
 
+typedef struct {
+    float yaw_delta;   /* degrees */
+    float pitch_delta; /* degrees */
+    int   fwd;         /* +1/-1/0 */
+    int   right;       /* +1/-1/0 */
+    bool  jump;        /* rising edge only */
+    bool  crouch;
+} PlayerInput;
+
 /* CS 1.6 movement constants */
 #define PLAYER_SPEED_GROUND   250.0f   /* max run speed (units/s) */
 #define PLAYER_SPEED_CROUCH    68.0f   /* max crouch speed */
@@ -28,10 +37,11 @@ typedef struct {
     float   pitch;      /* vertical angle, degrees, clamped [-89, 89] */
     bool    on_ground;
     bool    crouching;
+    int     health;
 } PlayerState;
 
 void     player_init(PlayerState *p);
-void     player_update(PlayerState *p, float dt);
+void     player_update(PlayerState *p, const PlayerInput *in, float dt);
 Camera3D player_camera(const PlayerState *p);
 
 #endif

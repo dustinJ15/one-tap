@@ -129,6 +129,14 @@ void map_draw(const Map *m)
     }
 }
 
+float map_ray_hits_box(Vector3 origin, Vector3 dir, Vector3 bmin, Vector3 bmax)
+{
+    float   t;
+    Vector3 n;
+    if (ray_aabb(origin, dir, bmin, bmax, &t, &n)) return t;
+    return -1.0f;
+}
+
 void map_collide(const Map *m, PlayerState *p)
 {
     float eye_h = p->crouching ? PLAYER_EYE_CROUCH : PLAYER_EYE_STAND;

@@ -1,0 +1,78 @@
+#ifndef NET_H
+#define NET_H
+
+#include <stdint.h>
+#include <stdbool.h>
+#include <netinet/in.h>
+
+#define NET_PORT        27015
+#define MAX_PLAYERS     10
+#define SERVER_TICKRATE 64
+#define SERVER_DT       (1.0f / (float)SERVER_TICKRATE)
+
+/* Packet type bytes */
+#define PKT_CONNECT    1
+#define PKT_ACCEPT     2
+#define PKT_INPUT      3
+#define PKT_WORLD      4
+#define PKT_DISCONNECT 5
+
+/* Button bitmask bits */
+#define BTN_FORWARD  (1 << 0)
+#define BTN_BACK     (1 << 1)
+#define BTN_LEFT     (1 << 2)
+#define BTN_RIGHT    (1 << 3)
+#define BTN_JUMP     (1 << 4)
+#define BTN_CROUCH   (1 << 5)
+#define BTN_SHOOT    (1 << 6)
+
+#pragma pack(push, 1)
+
+typedef struct { uint8_t type; }                     PktConnect;
+typedef struct { uint8_t type; uint8_t player_id; }  PktAccept;
+
+typedef struct {
+    uint8_t  type;
+    uint8_t  player_id;
+    uint8_t  buttons;
+    float    yaw;
+    float    pitch;
+    uint32_t seq;
+    float    x, y, z;  /* client eye position */
+} PktInput;   /* 27 bytes */
+
+typedef struct {
+    float   x, y, z;
+    float   yaw;
+    uint8_t health;
+    uint8_t active;
+} PlayerInfo;   /* 18 bytes */
+
+typedef struct {
+    uint8_t    type;
+    uint32_t   seq;
+    PlayerInfo players[MAX_PLAYERS];
+} PktWorld;   /* 1 + 4 + 10*18 = 185 bytes */
+
+typedef struct { uint8_t type; uint8_t player_id; } PktDisconnect;
+
+#pragma pack(pop)
+
+typedef struct {
+    int                sock;
+    struct sockaddr_in server_addr;
+    uint8_t            my_id;
+    bool               connected;
+    uint32_t           seq;
+    PlayerInfo         remote[MAX_PLAYERS];
+} NetClient;
+
+bool net_client_connect(NetClient *c, const char *server_ip, int port);
+void net_client_send_input(NetClient *c, uint8_t buttons, float yaw, float pitch,
+                           float x, float y, float z);
+void net_client_recv(NetClient *c);
+void net_client_disconnect(NetClient *c);
+
+void server_run(int port);
+
+#endif

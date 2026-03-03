@@ -46,20 +46,20 @@ void player_init(PlayerState *p)
     p->pitch     = 0.0f;
     p->on_ground = true;
     p->crouching = false;
+    p->health    = 100;
 }
 
-void player_update(PlayerState *p, float dt)
+void player_update(PlayerState *p, const PlayerInput *in, float dt)
 {
-    /* --- Mouse look --- */
-    Vector2 md  = GetMouseDelta();
-    p->yaw     += md.x * MOUSE_SENSITIVITY;
-    p->pitch   -= md.y * MOUSE_SENSITIVITY;
+    /* --- Look --- */
+    p->yaw   += in->yaw_delta;
+    p->pitch += in->pitch_delta;
     if (p->pitch >  89.0f) p->pitch =  89.0f;
     if (p->pitch < -89.0f) p->pitch = -89.0f;
 
-    /* --- Wish direction from WASD --- */
-    float fwd_in   = (float)(IsKeyDown(KEY_W) - IsKeyDown(KEY_S));
-    float right_in = (float)(IsKeyDown(KEY_D) - IsKeyDown(KEY_A));
+    /* --- Wish direction from input --- */
+    float fwd_in   = (float)in->fwd;
+    float right_in = (float)in->right;
 
     float yr = p->yaw * DEG2RAD;
     /* Horizontal movement vectors — pitch does not affect move direction in CS */
@@ -81,7 +81,7 @@ void player_update(PlayerState *p, float dt)
     }
 
     /* --- Crouch --- */
-    p->crouching      = IsKeyDown(KEY_LEFT_CONTROL);
+    p->crouching      = in->crouch;
     float max_speed   = p->crouching ? PLAYER_SPEED_CROUCH : PLAYER_SPEED_GROUND;
     float wish_speed  = wish_len * max_speed;
 
@@ -89,7 +89,7 @@ void player_update(PlayerState *p, float dt)
     if (p->on_ground) {
         apply_friction(p, dt);
         accelerate(p, wish_dir, wish_speed, PLAYER_ACCEL_GROUND, dt);
-        if (IsKeyPressed(KEY_SPACE)) {
+        if (in->jump) {
             p->velocity.y = PLAYER_JUMP_VELOCITY;
             p->on_ground  = false;
         }

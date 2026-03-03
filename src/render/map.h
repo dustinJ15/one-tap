@@ -27,5 +27,7 @@ void   map_build(Map *m);
 void   map_draw(const Map *m);
 void   map_collide(const Map *m, PlayerState *p);
 RayHit map_raycast(const Map *m, Vector3 origin, Vector3 dir);
+/* Returns t > 0 on hit, -1.0f if missed */
+float  map_ray_hits_box(Vector3 origin, Vector3 dir, Vector3 bmin, Vector3 bmax);
 
 #endif
