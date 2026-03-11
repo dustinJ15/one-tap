@@ -3,6 +3,7 @@
 #include "render/map.h"
 #include "game/weapons.h"
 #include "game/round.h"
+#include "game/economy.h"
 #include "net/net.h"
 #include <math.h>
 #include <stdlib.h>
@@ -59,7 +60,8 @@ int main(int argc, char **argv)
     weapon_init(&weapon);
 
     BulletHole holes[MAX_HOLES];
-    int hole_count = 0;
+    int  hole_count   = 0;
+    bool buy_menu_open = false;
 
     /* --- Networking --- */
     NetClient net;
@@ -72,11 +74,15 @@ int main(int argc, char **argv)
     {
         float dt = GetFrameTime();
 
-        /* --- Derive state from server --- */
+        /* --- Derive round state --- */
         bool am_dead   = net.connected && (net.remote[net.my_id].flags & 1);
         bool round_end = net.connected && (net.round_phase == PHASE_END);
+        bool in_buy    = net.connected && (net.round_phase == PHASE_BUY);
 
-        /* --- Build PlayerInput from local devices --- */
+        /* Close buy menu if we left buy phase */
+        if (!in_buy) buy_menu_open = false;
+
+        /* --- Build PlayerInput --- */
         Vector2 md = GetMouseDelta();
         PlayerInput input = {
             .yaw_delta   =  md.x * MOUSE_SENSITIVITY,
@@ -87,7 +93,7 @@ int main(int argc, char **argv)
             .crouch = IsKeyDown(KEY_LEFT_CONTROL),
         };
 
-        /* Suppress movement and shooting when dead or round over */
+        /* Movement allowed except when dead or round scoreboard showing */
         if (!am_dead && !round_end) {
             player_update(&player, &input, dt);
         }
@@ -99,8 +105,27 @@ int main(int argc, char **argv)
             ToggleFullscreen();
         }
 
-        /* --- Local shoot (visual + sound) — only when alive and round live --- */
-        if (!am_dead && !round_end && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+        /* --- Buy menu toggle (B key during buy phase) --- */
+        if (in_buy && IsKeyPressed(KEY_B)) {
+            buy_menu_open = !buy_menu_open;
+        }
+        if (buy_menu_open && IsKeyPressed(KEY_ESCAPE)) {
+            buy_menu_open = false;
+        }
+
+        /* --- Buy menu selection --- */
+        if (buy_menu_open && net.connected) {
+            for (int i = 0; i < WEAPON_COUNT; i++) {
+                /* KEY_ONE = 49, KEY_TWO = 50, etc. */
+                if (IsKeyPressed(KEY_ONE + i)) {
+                    net_client_buy(&net, (uint8_t)i);
+                    buy_menu_open = false;
+                }
+            }
+        }
+
+        /* --- Local shoot — alive, round live, not in buy phase --- */
+        if (!am_dead && !round_end && !in_buy && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
             RayHit hit = weapon_shoot(&weapon, &map, &player);
             if (hit.hit && hole_count < MAX_HOLES) {
                 holes[hole_count].pos    = hit.point;
@@ -119,16 +144,16 @@ int main(int argc, char **argv)
                 if (IsKeyDown(KEY_D))             buttons |= BTN_RIGHT;
                 if (IsKeyDown(KEY_SPACE))         buttons |= BTN_JUMP;
                 if (IsKeyDown(KEY_LEFT_CONTROL))  buttons |= BTN_CROUCH;
-                if (IsMouseButtonDown(MOUSE_BUTTON_LEFT)) buttons |= BTN_SHOOT;
+                if (!in_buy && IsMouseButtonDown(MOUSE_BUTTON_LEFT)) buttons |= BTN_SHOOT;
             }
 
             net_client_send_input(&net, buttons, player.yaw, player.pitch,
                                   player.position.x, player.position.y, player.position.z);
             net_client_recv(&net);
 
-            /* Re-derive after recv in case state changed */
             am_dead   = net.remote[net.my_id].flags & 1;
             round_end = net.round_phase == PHASE_END;
+            in_buy    = net.round_phase == PHASE_BUY;
         }
 
         /* --- Draw --- */
@@ -151,11 +176,11 @@ int main(int argc, char **argv)
                     DrawCubeV(p, size, (Color){ 12, 12, 12, 255 });
                 }
 
-                /* Remote players: CT=blue box, T=red box */
+                /* Remote players: CT=blue, T=red; hidden when dead */
                 if (net.connected) {
                     for (int i = 0; i < MAX_PLAYERS; i++) {
                         if (!net.remote[i].active || i == net.my_id) continue;
-                        if (net.remote[i].flags & 1) continue; /* dead: don't render */
+                        if (net.remote[i].flags & 1) continue;
                         Color c = (net.remote[i].team == TEAM_CT) ? BLUE : RED;
                         Vector3 center = {
                             net.remote[i].x,
@@ -173,33 +198,40 @@ int main(int argc, char **argv)
             int cx = sw / 2;
             int cy = sh / 2;
 
-            /* Crosshair — only when alive */
-            if (!am_dead) {
+            /* Crosshair — only when alive and not in buy phase */
+            if (!am_dead && !in_buy) {
                 DrawLine(cx - 10, cy, cx + 10, cy, WHITE);
                 DrawLine(cx, cy - 10, cx, cy + 10, WHITE);
             }
 
-            /* Round timer (top center) */
+            /* Timer (top center) */
             if (net.connected && !round_end) {
                 int total_secs = (int)net.round_timer;
                 int mins = total_secs / 60;
                 int secs = total_secs % 60;
                 const char *timer_str = TextFormat("%d:%02d", mins, secs);
                 int tw = MeasureText(timer_str, 28);
-                Color tc = (total_secs <= 10) ? RED : RAYWHITE;
+                Color tc = (!in_buy && total_secs <= 10) ? RED : RAYWHITE;
                 DrawText(timer_str, cx - tw / 2, 10, 28, tc);
             }
 
             /* Team label (top center, below timer) */
             if (net.connected) {
-                bool my_team_ct = (net.remote[net.my_id].team == TEAM_CT);
-                const char *team_str = my_team_ct ? "CT" : "T";
-                Color team_col = my_team_ct ? BLUE : RED;
+                bool my_ct = (net.remote[net.my_id].team == TEAM_CT);
+                const char *team_str = my_ct ? "CT" : "T";
+                Color team_col = my_ct ? BLUE : RED;
                 int tw = MeasureText(team_str, 20);
                 DrawText(team_str, cx - tw / 2, 44, 20, team_col);
             }
 
-            /* HUD (bottom-left) */
+            /* Buy phase banner */
+            if (in_buy) {
+                const char *buy_str = "BUY PHASE  [B] to open menu";
+                int tw = MeasureText(buy_str, 22);
+                DrawText(buy_str, cx - tw / 2, 70, 22, YELLOW);
+            }
+
+            /* HUD bottom */
             DrawFPS(10, 10);
             float hspeed = sqrtf(player.velocity.x * player.velocity.x +
                                  player.velocity.z * player.velocity.z);
@@ -207,13 +239,19 @@ int main(int argc, char **argv)
             DrawText(player.crouching ? "CROUCH" : "", 10, 58, 20, RAYWHITE);
 
             int hp = net.connected ? (int)net.remote[net.my_id].health : 100;
-            DrawText(TextFormat("HP: %d", hp), 10, sh - 36, 24,
+            DrawText(TextFormat("HP: %d", hp), 10, sh - 60, 24,
                      hp <= 25 ? RED : RAYWHITE);
 
-            /* Score (top-left) */
+            /* Money */
+            if (net.connected) {
+                int my_money = (int)net.remote[net.my_id].money;
+                DrawText(TextFormat("$%d", my_money), 10, sh - 32, 24, GREEN);
+            }
+
+            /* Score */
             if (net.connected) {
                 DrawText(TextFormat("CT %d  |  %d T", net.ct_score, net.t_score),
-                         10, sh - 64, 20, LIGHTGRAY);
+                         10, sh - 88, 20, LIGHTGRAY);
             }
 
             /* Spectator overlay */
@@ -222,6 +260,30 @@ int main(int argc, char **argv)
                 const char *spec_str = "SPECTATING";
                 int tw = MeasureText(spec_str, 32);
                 DrawText(spec_str, cx - tw / 2, cy - 60, 32, (Color){ 220, 220, 220, 200 });
+            }
+
+            /* Buy menu overlay */
+            if (buy_menu_open) {
+                int my_money = net.connected ? (int)net.remote[net.my_id].money : 0;
+                int bw = 320, bh = 60 + WEAPON_COUNT * 34 + 30;
+                int bx = cx - bw / 2, by = cy - bh / 2;
+                DrawRectangle(bx, by, bw, bh, (Color){ 0, 0, 0, 220 });
+                DrawRectangleLines(bx, by, bw, bh, GRAY);
+
+                DrawText("BUY MENU", bx + 12, by + 12, 22, YELLOW);
+                DrawText(TextFormat("Money: $%d", my_money), bx + 12, by + 36, 18, GREEN);
+
+                for (int i = 0; i < WEAPON_COUNT; i++) {
+                    int wy = by + 66 + i * 34;
+                    bool can_afford = (my_money >= WEAPONS[i].price);
+                    Color wc = can_afford ? WHITE : DARKGRAY;
+                    const char *price_str = (WEAPONS[i].price == 0) ? "FREE" :
+                                            TextFormat("$%d", WEAPONS[i].price);
+                    DrawText(TextFormat("[%d] %-10s  %s", i + 1,
+                             WEAPONS[i].name, price_str), bx + 12, wy, 20, wc);
+                }
+
+                DrawText("[B/ESC] Close", bx + 12, by + bh - 22, 16, DARKGRAY);
             }
 
             /* Round-end scoreboard overlay */

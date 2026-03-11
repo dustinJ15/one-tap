@@ -106,6 +106,13 @@ void net_client_recv(NetClient *c)
     }
 }
 
+void net_client_buy(NetClient *c, uint8_t weapon_id)
+{
+    if (!c->connected) return;
+    PktBuy pkt = { PKT_BUY, c->my_id, weapon_id };
+    send(c->sock, &pkt, sizeof(pkt), 0);
+}
+
 void net_client_disconnect(NetClient *c)
 {
     if (!c->connected) return;

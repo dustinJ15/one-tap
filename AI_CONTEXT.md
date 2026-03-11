@@ -157,13 +157,13 @@ Key behavior: in the air you have very little ability to change direction (low a
 - [x] **Checkpoint:** full round loop works — timer, death, win condition, new round ✓
 
 ### Milestone 7 — Economy
-- [ ] `src/game/economy.c`: money per player (persists between rounds)
-- [ ] Kill reward: +$300
-- [ ] Round win: +$3250 / Round loss: +$1400 (with loss bonus streak)
-- [ ] Buy phase at round start (first 15 seconds)
-- [ ] Console buy command: `buy <weapon>`
-- [ ] Starting pistol always available for free
-- [ ] **Checkpoint:** money accumulates across rounds, can buy weapons
+- [x] `src/game/economy.c`: money per player (persists between rounds)
+- [x] Kill reward: +$300
+- [x] Round win: +$3250 / Round loss: +$1400 (with loss bonus streak, up to $3400)
+- [x] Buy phase at round start (first 15 seconds, PHASE_BUY)
+- [x] B key opens buy menu overlay; number keys to select weapon
+- [x] Starting pistol always available for free (auto-equipped each round)
+- [x] **Checkpoint:** money accumulates across rounds, can buy weapons ✓
 
 ### Milestone 8 — Weapon Arsenal
 - [ ] Pistol (free, always — Glock/USP style)
@@ -210,6 +210,7 @@ Key behavior: in the air you have very little ability to change direction (low a
 | 2026-03-03 | Milestone 5: client-authoritative position | Server trusts x/y/z from PktInput — avoids parallel physics divergence. Health/hit-detection stay server-side. Acceptable for LAN prototype. |
 | 2026-03-03 | Milestone 5: PlayerInput decoupling | Removed all raylib input calls from movement.c; player_update now takes const PlayerInput*. Required for server to drive player physics without a window. |
 | 2026-03-11 | Milestone 6: round system | RoundState in round.c, team assignment on connect, team-aware spawns, death→spectator, win-by-elimination, 1:55 timer, 5s scoreboard, round restart. PktWorld expanded to 210B with phase/round_ticks/scores/win_team. |
+| 2026-03-11 | Milestone 7: economy | economy.h/c: MONEY_START=$800, kill +$300, win +$3250, loss $1400–$3400 streak. PHASE_BUY (15s) before PHASE_LIVE. PKT_BUY for weapon purchases. PktWorld expanded to 231B with uint16 money per PlayerInfo. Buy menu: B key, number keys to buy. |
 
 ---
 
