@@ -7,6 +7,7 @@
 #include "net.h"
 #include "../physics/movement.h"
 #include "../render/map.h"
+#include "../game/round.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -30,25 +31,29 @@ typedef struct {
     struct sockaddr_in addr;
     PlayerState        player;
     uint8_t            last_buttons;
-    bool               jump_pending;
     bool               shoot_pending;
-    PlayerInput        input;
     bool               active;
+    bool               dead;
+    Team               team;
     double             last_seen;
 } SrvClient;
 
-/* Ten spawn points spread across the room interior (room is 800×800, -400..+400) */
-static const Vector3 SPAWN_POINTS[MAX_PLAYERS] = {
+/* CT spawns: +Z side of the room */
+static const Vector3 CT_SPAWNS[5] = {
     { -300.0f, PLAYER_EYE_STAND,  300.0f },
     {  300.0f, PLAYER_EYE_STAND,  300.0f },
+    {    0.0f, PLAYER_EYE_STAND,  300.0f },
+    { -150.0f, PLAYER_EYE_STAND,  200.0f },
+    {  150.0f, PLAYER_EYE_STAND,  200.0f },
+};
+
+/* T spawns: -Z side of the room */
+static const Vector3 T_SPAWNS[5] = {
     { -300.0f, PLAYER_EYE_STAND, -300.0f },
     {  300.0f, PLAYER_EYE_STAND, -300.0f },
-    {    0.0f, PLAYER_EYE_STAND,  300.0f },
     {    0.0f, PLAYER_EYE_STAND, -300.0f },
-    { -300.0f, PLAYER_EYE_STAND,    0.0f },
-    {  300.0f, PLAYER_EYE_STAND,    0.0f },
-    { -150.0f, PLAYER_EYE_STAND,  150.0f },
-    {  150.0f, PLAYER_EYE_STAND, -150.0f },
+    { -150.0f, PLAYER_EYE_STAND, -200.0f },
+    {  150.0f, PLAYER_EYE_STAND, -200.0f },
 };
 
 static bool addr_eq(const struct sockaddr_in *a, const struct sockaddr_in *b)
@@ -57,7 +62,40 @@ static bool addr_eq(const struct sockaddr_in *a, const struct sockaddr_in *b)
            a->sin_port         == b->sin_port;
 }
 
-/* Ray vs player box — deals damage, respawns on kill */
+/* Assign a spawn position based on team membership count */
+static Vector3 team_spawn(SrvClient *clients, int id)
+{
+    Team team = clients[id].team;
+    const Vector3 *spawns = (team == TEAM_CT) ? CT_SPAWNS : T_SPAWNS;
+    int idx = 0;
+    for (int j = 0; j < MAX_PLAYERS; j++) {
+        if (j == id || !clients[j].active) continue;
+        if (clients[j].team == team) idx++;
+    }
+    return spawns[idx % 5];
+}
+
+static void server_restart_round(SrvClient *clients)
+{
+    int ct_idx = 0, t_idx = 0;
+    for (int i = 0; i < MAX_PLAYERS; i++) {
+        if (!clients[i].active) continue;
+        clients[i].dead          = false;
+        clients[i].player.health = 100;
+        clients[i].player.velocity = (Vector3){ 0, 0, 0 };
+        clients[i].shoot_pending = false;
+        clients[i].last_buttons  = 0;
+        if (clients[i].team == TEAM_CT) {
+            clients[i].player.position = CT_SPAWNS[ct_idx % 5];
+            ct_idx++;
+        } else {
+            clients[i].player.position = T_SPAWNS[t_idx % 5];
+            t_idx++;
+        }
+    }
+}
+
+/* Ray vs player box — deals damage, marks dead on kill */
 static void server_apply_shoot(SrvClient *clients, int shooter_id, const Map *map)
 {
     SrvClient *s  = &clients[shooter_id];
@@ -74,7 +112,9 @@ static void server_apply_shoot(SrvClient *clients, int shooter_id, const Map *ma
     float  wall_t = wall.hit ? wall.t : 1e30f;
 
     for (int i = 0; i < MAX_PLAYERS; i++) {
-        if (i == shooter_id || !clients[i].active) continue;
+        if (i == shooter_id || !clients[i].active || clients[i].dead) continue;
+        /* Friendly fire off: skip same team */
+        if (clients[i].team == s->team) continue;
 
         PlayerState *p  = &clients[i].player;
         Vector3 bmin = { p->position.x - PLAYER_HALF_WIDTH,
@@ -88,16 +128,18 @@ static void server_apply_shoot(SrvClient *clients, int shooter_id, const Map *ma
         if (pt > 0.0f && pt < wall_t) {
             clients[i].player.health -= 34;
             if (clients[i].player.health <= 0) {
-                clients[i].player.health   = 100;
-                clients[i].player.position = SPAWN_POINTS[i % MAX_PLAYERS];
-                clients[i].player.velocity = (Vector3){ 0.0f, 0.0f, 0.0f };
-                printf("[server] player %d killed player %d\n", shooter_id, i);
+                clients[i].player.health = 0;
+                clients[i].dead = true;
+                printf("[server] player %d (%s) killed player %d (%s)\n",
+                       shooter_id, s->team == TEAM_CT ? "CT" : "T",
+                       i, clients[i].team == TEAM_CT ? "CT" : "T");
             }
         }
     }
 }
 
-static void server_recv_packets(int sock, SrvClient *clients, double now)
+static void server_recv_packets(int sock, SrvClient *clients, double now,
+                                const RoundState *round)
 {
     uint8_t            buf[256];
     struct sockaddr_in addr;
@@ -116,7 +158,6 @@ static void server_recv_packets(int sock, SrvClient *clients, double now)
         uint8_t type = buf[0];
 
         if (type == PKT_CONNECT) {
-            /* Find existing slot (reconnect) or first free slot */
             int id = -1;
             for (int i = 0; i < MAX_PLAYERS; i++) {
                 if (clients[i].active && addr_eq(&clients[i].addr, &addr)) {
@@ -134,10 +175,26 @@ static void server_recv_packets(int sock, SrvClient *clients, double now)
                 memset(&clients[id], 0, sizeof(SrvClient));
                 clients[id].addr   = addr;
                 clients[id].active = true;
+
+                /* Assign to the smaller team */
+                int ct_count = 0, t_count = 0;
+                for (int j = 0; j < MAX_PLAYERS; j++) {
+                    if (!clients[j].active) continue;
+                    if (clients[j].team == TEAM_CT) ct_count++;
+                    else                             t_count++;
+                }
+                clients[id].team = (ct_count <= t_count) ? TEAM_CT : TEAM_T;
+
                 player_init(&clients[id].player);
-                clients[id].player.position = SPAWN_POINTS[id % MAX_PLAYERS];
-                printf("[server] player %d connected from %s:%d\n",
-                       id, inet_ntoa(addr.sin_addr), ntohs(addr.sin_port));
+                clients[id].player.position = team_spawn(clients, id);
+
+                /* If round is in end phase, spawn as dead until restart */
+                clients[id].dead = (round->phase == PHASE_END);
+
+                printf("[server] player %d connected as %s from %s:%d\n",
+                       id,
+                       clients[id].team == TEAM_CT ? "CT" : "T",
+                       inet_ntoa(addr.sin_addr), ntohs(addr.sin_port));
             }
             clients[id].last_seen = now;
 
@@ -154,18 +211,20 @@ static void server_recv_packets(int sock, SrvClient *clients, double now)
 
             clients[id].last_seen = now;
 
-            /* Trust the client's reported position — avoids parallel-sim divergence */
-            clients[id].player.position.x = pkt.x;
-            clients[id].player.position.y = pkt.y;
-            clients[id].player.position.z = pkt.z;
-            clients[id].player.yaw        = pkt.yaw;
-            clients[id].player.pitch      = pkt.pitch;
+            /* Ignore position updates from dead players and during round end */
+            if (!clients[id].dead && round->phase == PHASE_LIVE) {
+                clients[id].player.position.x = pkt.x;
+                clients[id].player.position.y = pkt.y;
+                clients[id].player.position.z = pkt.z;
+                clients[id].player.yaw        = pkt.yaw;
+                clients[id].player.pitch      = pkt.pitch;
 
-            /* Rising-edge detection for shoot */
-            uint8_t prev = clients[id].last_buttons;
-            uint8_t curr = pkt.buttons;
-            if ((curr & BTN_SHOOT) && !(prev & BTN_SHOOT)) clients[id].shoot_pending = true;
-            clients[id].last_buttons = curr;
+                uint8_t prev = clients[id].last_buttons;
+                uint8_t curr = pkt.buttons;
+                if ((curr & BTN_SHOOT) && !(prev & BTN_SHOOT))
+                    clients[id].shoot_pending = true;
+                clients[id].last_buttons = curr;
+            }
 
         } else if (type == PKT_DISCONNECT && n >= (ssize_t)sizeof(PktDisconnect)) {
             PktDisconnect pkt;
@@ -179,18 +238,50 @@ static void server_recv_packets(int sock, SrvClient *clients, double now)
     }
 }
 
-static void server_tick(SrvClient *clients, const Map *map)
+static void server_tick(SrvClient *clients, const Map *map, RoundState *round, float dt)
 {
-    for (int i = 0; i < MAX_PLAYERS; i++) {
-        if (!clients[i].active) continue;
-        if (clients[i].shoot_pending) {
-            server_apply_shoot(clients, i, map);
-            clients[i].shoot_pending = false;
+    if (round->phase == PHASE_LIVE) {
+        /* Process shoots for living players */
+        for (int i = 0; i < MAX_PLAYERS; i++) {
+            if (!clients[i].active || clients[i].dead) continue;
+            if (clients[i].shoot_pending) {
+                server_apply_shoot(clients, i, map);
+                clients[i].shoot_pending = false;
+            }
+        }
+
+        /* Count alive players per team */
+        int ct_alive = 0, t_alive = 0, ct_total = 0, t_total = 0;
+        for (int i = 0; i < MAX_PLAYERS; i++) {
+            if (!clients[i].active) continue;
+            if (clients[i].team == TEAM_CT) {
+                ct_total++;
+                if (!clients[i].dead) ct_alive++;
+            } else {
+                t_total++;
+                if (!clients[i].dead) t_alive++;
+            }
+        }
+
+        if (round_tick_live(round, dt, ct_alive, t_alive, ct_total, t_total)) {
+            printf("[server] round over — %s  (CT:%d T:%d)\n",
+                   round->win_team == 1 ? "CT WIN" : "T WIN",
+                   round->ct_score, round->t_score);
+        }
+    } else {
+        /* PHASE_END: drain pending shoots, tick end timer */
+        for (int i = 0; i < MAX_PLAYERS; i++) clients[i].shoot_pending = false;
+
+        if (round_tick_end(round, dt)) {
+            round_start(round);
+            server_restart_round(clients);
+            printf("[server] new round  (CT:%d T:%d)\n",
+                   round->ct_score, round->t_score);
         }
     }
 }
 
-static void server_send_world(int sock, SrvClient *clients)
+static void server_send_world(int sock, SrvClient *clients, const RoundState *round)
 {
     PktWorld pkt;
     memset(&pkt, 0, sizeof(pkt));
@@ -204,7 +295,16 @@ static void server_send_world(int sock, SrvClient *clients)
         pkt.players[i].health = (uint8_t)(clients[i].player.health > 0
                                           ? clients[i].player.health : 0);
         pkt.players[i].active = clients[i].active ? 1 : 0;
+        pkt.players[i].team   = (uint8_t)clients[i].team;
+        pkt.players[i].flags  = clients[i].dead ? 1 : 0;
     }
+
+    uint16_t ticks = (uint16_t)(round->timer * 10.0f);
+    pkt.phase       = (uint8_t)round->phase;
+    pkt.round_ticks = ticks;
+    pkt.ct_score    = (uint8_t)round->ct_score;
+    pkt.t_score     = (uint8_t)round->t_score;
+    pkt.win_team    = (uint8_t)round->win_team;
 
     for (int i = 0; i < MAX_PLAYERS; i++) {
         if (!clients[i].active) continue;
@@ -233,7 +333,6 @@ void server_run(int port)
         perror("bind"); close(sock); return;
     }
 
-    /* Non-blocking recv for the game loop */
     int flags = fcntl(sock, F_GETFL, 0);
     fcntl(sock, F_SETFL, flags | O_NONBLOCK);
 
@@ -242,6 +341,9 @@ void server_run(int port)
 
     Map map;
     map_build(&map);
+
+    RoundState round;
+    round_init(&round);
 
     printf("[server] listening on :%d\n", port);
 
@@ -267,9 +369,9 @@ void server_run(int port)
         }
         last_tick = now_ts;
 
-        server_recv_packets(sock, clients, now);
-        server_tick(clients, &map);
-        server_send_world(sock, clients);
+        server_recv_packets(sock, clients, now, &round);
+        server_tick(clients, &map, &round, (float)SERVER_DT);
+        server_send_world(sock, clients, &round);
 
         /* Drop clients that have gone quiet */
         for (int i = 0; i < MAX_PLAYERS; i++) {

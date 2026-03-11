@@ -79,6 +79,7 @@ void net_client_recv(NetClient *c)
 
     uint8_t  buf[256];
     PktWorld latest;
+    memset(&latest, 0, sizeof(latest));
     bool     got_world = false;
 
     for (;;) {
@@ -97,6 +98,11 @@ void net_client_recv(NetClient *c)
         for (int i = 0; i < MAX_PLAYERS; i++) {
             c->remote[i] = latest.players[i];
         }
+        c->round_phase = latest.phase;
+        c->round_timer = latest.round_ticks / 10.0f;
+        c->ct_score    = latest.ct_score;
+        c->t_score     = latest.t_score;
+        c->win_team    = latest.win_team;
     }
 }
 

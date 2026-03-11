@@ -46,13 +46,20 @@ typedef struct {
     float   yaw;
     uint8_t health;
     uint8_t active;
-} PlayerInfo;   /* 18 bytes */
+    uint8_t team;   /* 0=CT 1=T */
+    uint8_t flags;  /* bit0=dead/spectating */
+} PlayerInfo;   /* 20 bytes */
 
 typedef struct {
     uint8_t    type;
     uint32_t   seq;
     PlayerInfo players[MAX_PLAYERS];
-} PktWorld;   /* 1 + 4 + 10*18 = 185 bytes */
+    uint8_t    phase;        /* 0=live 1=end */
+    uint16_t   round_ticks;  /* tenths of a second remaining */
+    uint8_t    ct_score;
+    uint8_t    t_score;
+    uint8_t    win_team;     /* 0=none 1=CT 2=T */
+} PktWorld;   /* 1 + 4 + 10*20 + 5 = 210 bytes */
 
 typedef struct { uint8_t type; uint8_t player_id; } PktDisconnect;
 
@@ -65,6 +72,11 @@ typedef struct {
     bool               connected;
     uint32_t           seq;
     PlayerInfo         remote[MAX_PLAYERS];
+    uint8_t            round_phase;
+    float              round_timer;  /* seconds remaining */
+    uint8_t            ct_score;
+    uint8_t            t_score;
+    uint8_t            win_team;
 } NetClient;
 
 bool net_client_connect(NetClient *c, const char *server_ip, int port);

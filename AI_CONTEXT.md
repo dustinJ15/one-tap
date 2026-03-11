@@ -148,13 +148,13 @@ Key behavior: in the air you have very little ability to change direction (low a
 - [x] **Checkpoint:** two clients connect, see each other move, can shoot each other (3 hits to kill), kill logged on server ✓
 
 ### Milestone 6 — Rounds
-- [ ] `src/game/round.c`: round timer (1:55 default)
-- [ ] Team assignment (CT / T) on connect
-- [ ] Team-aware spawn points (hardcoded per map for now)
-- [ ] Death: player becomes spectator until round ends, no respawn
-- [ ] Win condition: all enemies eliminated
-- [ ] Round end → scoreboard → round restart
-- [ ] **Checkpoint:** full round loop works — timer, death, win condition, new round
+- [x] `src/game/round.c`: round timer (1:55 default)
+- [x] Team assignment (CT / T) on connect
+- [x] Team-aware spawn points (hardcoded per map for now)
+- [x] Death: player becomes spectator until round ends, no respawn
+- [x] Win condition: all enemies eliminated
+- [x] Round end → scoreboard → round restart
+- [x] **Checkpoint:** full round loop works — timer, death, win condition, new round ✓
 
 ### Milestone 7 — Economy
 - [ ] `src/game/economy.c`: money per player (persists between rounds)
@@ -209,6 +209,7 @@ Key behavior: in the air you have very little ability to change direction (low a
 | 2026-03-03 | Milestone 5: dedicated server model | Same binary, --server runs headless; avoids NAT issues, server is authoritative for health/kills |
 | 2026-03-03 | Milestone 5: client-authoritative position | Server trusts x/y/z from PktInput — avoids parallel physics divergence. Health/hit-detection stay server-side. Acceptable for LAN prototype. |
 | 2026-03-03 | Milestone 5: PlayerInput decoupling | Removed all raylib input calls from movement.c; player_update now takes const PlayerInput*. Required for server to drive player physics without a window. |
+| 2026-03-11 | Milestone 6: round system | RoundState in round.c, team assignment on connect, team-aware spawns, death→spectator, win-by-elimination, 1:55 timer, 5s scoreboard, round restart. PktWorld expanded to 210B with phase/round_ticks/scores/win_team. |
 
 ---
 
