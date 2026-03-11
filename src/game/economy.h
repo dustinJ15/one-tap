@@ -10,20 +10,28 @@
 
 typedef enum {
     WEAPON_PISTOL = 0,
+    WEAPON_AK     = 1,
+    WEAPON_M4     = 2,
+    WEAPON_AWP    = 3,
     WEAPON_COUNT
 } WeaponId;
 
 typedef struct {
     const char *name;
     int         price;
+    int         ammo_price;    /* cost to refill reserve */
+    int         ammo_mag;
+    int         ammo_reserve;
+    int         damage;
+    float       fire_rate;     /* seconds between shots */
+    float       reload_time;   /* seconds to reload */
+    float       move_factor;   /* max speed multiplier (1.0 = normal) */
+    bool        semi_auto;     /* true = one shot per click */
 } WeaponDef;
 
 extern const WeaponDef WEAPONS[WEAPON_COUNT];
 
-/* Clamp money to [0, MONEY_MAX] after adding amount (negative to subtract). */
 void economy_add(int *money, int amount);
-
-/* Return loss reward for the given consecutive loss count (1-indexed). */
-int economy_loss_bonus(int streak);
+int  economy_loss_bonus(int streak);
 
 #endif

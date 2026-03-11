@@ -17,15 +17,15 @@
 #define PKT_WORLD      4
 #define PKT_DISCONNECT 5
 #define PKT_BUY        6
+#define PKT_SHOOT      7
 
-/* Button bitmask bits */
+/* Button bitmask bits (shoot is now PKT_SHOOT, kept for future use) */
 #define BTN_FORWARD  (1 << 0)
 #define BTN_BACK     (1 << 1)
 #define BTN_LEFT     (1 << 2)
 #define BTN_RIGHT    (1 << 3)
 #define BTN_JUMP     (1 << 4)
 #define BTN_CROUCH   (1 << 5)
-#define BTN_SHOOT    (1 << 6)
 
 #pragma pack(push, 1)
 
@@ -39,18 +39,27 @@ typedef struct {
     float    yaw;
     float    pitch;
     uint32_t seq;
-    float    x, y, z;  /* client eye position */
+    float    x, y, z;
 } PktInput;   /* 27 bytes */
+
+typedef struct {
+    uint8_t type;
+    uint8_t player_id;
+    float   dx, dy, dz;  /* normalised shot direction */
+} PktShoot;   /* 14 bytes */
 
 typedef struct {
     float    x, y, z;
     float    yaw;
     uint8_t  health;
     uint8_t  active;
-    uint8_t  team;     /* 0=CT 1=T */
-    uint8_t  flags;    /* bit0=dead/spectating */
+    uint8_t  team;         /* 0=CT 1=T */
+    uint8_t  flags;        /* bit0=dead */
     uint16_t money;
-} PlayerInfo;   /* 22 bytes */
+    uint8_t  weapon;       /* WeaponId */
+    uint8_t  ammo_mag;
+    uint8_t  ammo_reserve;
+} PlayerInfo;   /* 25 bytes */
 
 typedef struct {
     uint8_t    type;
@@ -61,7 +70,7 @@ typedef struct {
     uint8_t    ct_score;
     uint8_t    t_score;
     uint8_t    win_team;     /* 0=none 1=CT 2=T */
-} PktWorld;   /* 1 + 4 + 10*22 + 6 = 231 bytes */
+} PktWorld;   /* 1 + 4 + 10*25 + 6 = 261 bytes */
 
 typedef struct { uint8_t type; uint8_t player_id; }                    PktDisconnect;
 typedef struct { uint8_t type; uint8_t player_id; uint8_t weapon_id; } PktBuy;
@@ -76,7 +85,7 @@ typedef struct {
     uint32_t           seq;
     PlayerInfo         remote[MAX_PLAYERS];
     uint8_t            round_phase;
-    float              round_timer;  /* seconds remaining */
+    float              round_timer;
     uint8_t            ct_score;
     uint8_t            t_score;
     uint8_t            win_team;
@@ -86,6 +95,7 @@ bool net_client_connect(NetClient *c, const char *server_ip, int port);
 void net_client_send_input(NetClient *c, uint8_t buttons, float yaw, float pitch,
                            float x, float y, float z);
 void net_client_buy(NetClient *c, uint8_t weapon_id);
+void net_client_shoot(NetClient *c, float dx, float dy, float dz);
 void net_client_recv(NetClient *c);
 void net_client_disconnect(NetClient *c);
 

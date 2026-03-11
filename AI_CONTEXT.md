@@ -166,14 +166,15 @@ Key behavior: in the air you have very little ability to change direction (low a
 - [x] **Checkpoint:** money accumulates across rounds, can buy weapons ✓
 
 ### Milestone 8 — Weapon Arsenal
-- [ ] Pistol (free, always — Glock/USP style)
-- [ ] T rifle (AK-style: high damage, one-tap to head, higher spread)
-- [ ] CT rifle (M4-style: lower damage, lower spread, faster fire)
-- [ ] Sniper (AWP-style: one-shot kill body, slow movement while scoped)
-- [ ] Each weapon: damage, spread, fire rate, price, ammo count
-- [ ] Ammo runs out, can buy more
-- [ ] **First-shot accuracy:** first shot should be perfectly accurate (or near-perfect) when standing still — spread only kicks in on subsequent shots and resets after a cooldown. Developer has ideas about tuning this per-weapon.
-- [ ] **Checkpoint:** weapon choice has real strategic tradeoff
+- [x] Pistol (free, semi-auto, 35 dmg, 12+36 ammo)
+- [x] AK (T-style: 100 dmg, $2700, 30+90 ammo, 0.1s fire rate, 0.85x speed)
+- [x] M4 (CT-style: 70 dmg, $3100, 30+90 ammo, 0.09s fire rate, 0.90x speed)
+- [x] AWP (sniper: 100 dmg, $4750, 10+30 ammo, 1.5s fire rate, 0.70x speed)
+- [x] Deterministic spray patterns: pure vertical phase → pure horizontal phase, never simultaneously — clean right-angle transition is the learnable skill
+- [x] PKT_SHOOT carries normalised ray direction; server uses it for hit detection (no pattern duplication server-side)
+- [x] Ammo tracked server+client; auto-reload on empty mag; R to reload manually; re-buy same weapon = ammo refill at ammo_price
+- [x] AWP movement penalty via max_speed in PlayerInput
+- [x] **Checkpoint:** weapon choice has real strategic tradeoff ✓
 
 ### Milestone 9 — Bomb Objective
 - [ ] Bomb item: spawns on a T-side player each round
@@ -211,6 +212,7 @@ Key behavior: in the air you have very little ability to change direction (low a
 | 2026-03-03 | Milestone 5: PlayerInput decoupling | Removed all raylib input calls from movement.c; player_update now takes const PlayerInput*. Required for server to drive player physics without a window. |
 | 2026-03-11 | Milestone 6: round system | RoundState in round.c, team assignment on connect, team-aware spawns, death→spectator, win-by-elimination, 1:55 timer, 5s scoreboard, round restart. PktWorld expanded to 210B with phase/round_ticks/scores/win_team. |
 | 2026-03-11 | Milestone 7: economy | economy.h/c: MONEY_START=$800, kill +$300, win +$3250, loss $1400–$3400 streak. PHASE_BUY (15s) before PHASE_LIVE. PKT_BUY for weapon purchases. PktWorld expanded to 231B with uint16 money per PlayerInfo. Buy menu: B key, number keys to buy. |
+| 2026-03-11 | Milestone 8: weapon arsenal | 4 weapons (Pistol/AK/M4/AWP). Deterministic spray patterns: pure vertical then pure horizontal, never overlap — right-angle transition is the learnable skill. PKT_SHOOT (14B) carries ray direction; server uses it directly. PlayerInfo expanded to 25B with weapon/ammo. PktWorld 261B. AWP slow via max_speed in PlayerInput. R to reload, auto-reload on empty. Re-buy = ammo refill. |
 
 ---
 

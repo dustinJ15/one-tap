@@ -81,9 +81,10 @@ void player_update(PlayerState *p, const PlayerInput *in, float dt)
     }
 
     /* --- Crouch --- */
-    p->crouching      = in->crouch;
-    float max_speed   = p->crouching ? PLAYER_SPEED_CROUCH : PLAYER_SPEED_GROUND;
-    float wish_speed  = wish_len * max_speed;
+    p->crouching     = in->crouch;
+    float spd_cap    = p->crouching ? PLAYER_SPEED_CROUCH : PLAYER_SPEED_GROUND;
+    if (in->max_speed > 0.0f && in->max_speed < spd_cap) spd_cap = in->max_speed;
+    float wish_speed = wish_len * spd_cap;
 
     /* --- Ground vs air --- */
     if (p->on_ground) {

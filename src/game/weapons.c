@@ -1,25 +1,98 @@
 #include "weapons.h"
 #include <math.h>
 #include <stdlib.h>
+#include <string.h>
 
-/*
- * Generate a procedural gunshot: white noise with a fast exponential decay.
- * Sounds like a dry crack — good enough until real audio assets exist.
- */
+/* ---------------------------------------------------------------------------
+ * Spray patterns
+ *
+ * Each entry is the CUMULATIVE offset (degrees) added to the aimed direction.
+ * The player subtracts this with mouse movement to land shots on target.
+ *
+ * Rule: yaw and pitch offsets are never both non-zero in the same shot.
+ *   Vertical phase  → yaw = 0, pitch grows.
+ *   Horizontal phase → yaw alternates, pitch locked at vertical-phase peak.
+ * --------------------------------------------------------------------------- */
+
+/* Pistol (12): gentle vertical rise only, semi-auto so no horizontal needed */
+const SprayPoint SPRAY_PISTOL[12] = {
+    { 0.0f, 0.0f }, { 0.0f, 0.8f }, { 0.0f, 1.5f }, { 0.0f, 2.0f },
+    { 0.0f, 2.3f }, { 0.0f, 2.5f }, { 0.0f, 2.5f }, { 0.0f, 2.5f },
+    { 0.0f, 2.5f }, { 0.0f, 2.5f }, { 0.0f, 2.5f }, { 0.0f, 2.5f },
+};
+
+/* AK (30):
+ *   shots  0-6  — pure vertical, 0→15°   (pull straight down to counter)
+ *   shots  7-29 — pure horizontal, groups of 3, alternating -3.5° / +4.0°
+ *                 (step right→left→right, no vertical change)             */
+const SprayPoint SPRAY_AK[30] = {
+    /* vertical phase */
+    {  0.0f,  0.0f }, {  0.0f,  2.5f }, {  0.0f,  5.5f }, {  0.0f,  8.5f },
+    {  0.0f, 11.0f }, {  0.0f, 13.0f }, {  0.0f, 15.0f },
+    /* horizontal phase — groups of 3 */
+    { -3.5f, 15.0f }, { -3.5f, 15.0f }, { -3.5f, 15.0f },   /* L */
+    {  4.0f, 15.0f }, {  4.0f, 15.0f }, {  4.0f, 15.0f },   /* R */
+    { -3.5f, 15.0f }, { -3.5f, 15.0f }, { -3.5f, 15.0f },   /* L */
+    {  4.0f, 15.0f }, {  4.0f, 15.0f }, {  4.0f, 15.0f },   /* R */
+    { -3.5f, 15.0f }, { -3.5f, 15.0f }, { -3.5f, 15.0f },   /* L */
+    {  4.0f, 15.0f }, {  4.0f, 15.0f }, {  4.0f, 15.0f },   /* R */
+    { -3.5f, 15.0f }, { -3.5f, 15.0f }, { -3.5f, 15.0f },   /* L */
+    {  4.0f, 15.0f }, {  4.0f, 15.0f },                      /* R (last 2) */
+};
+
+/* M4 (30):
+ *   shots  0-9  — pure vertical, 0→13°   (gentler than AK)
+ *   shots 10-29 — pure horizontal, groups of 4, alternating -2.5° / +2.5° */
+const SprayPoint SPRAY_M4[30] = {
+    /* vertical phase */
+    {  0.0f,  0.0f }, {  0.0f,  1.5f }, {  0.0f,  3.2f }, {  0.0f,  5.2f },
+    {  0.0f,  7.2f }, {  0.0f,  9.0f }, {  0.0f, 10.5f }, {  0.0f, 11.7f },
+    {  0.0f, 12.5f }, {  0.0f, 13.0f },
+    /* horizontal phase — groups of 4 */
+    { -2.5f, 13.0f }, { -2.5f, 13.0f }, { -2.5f, 13.0f }, { -2.5f, 13.0f }, /* L */
+    {  2.5f, 13.0f }, {  2.5f, 13.0f }, {  2.5f, 13.0f }, {  2.5f, 13.0f }, /* R */
+    { -2.5f, 13.0f }, { -2.5f, 13.0f }, { -2.5f, 13.0f }, { -2.5f, 13.0f }, /* L */
+    {  2.5f, 13.0f }, {  2.5f, 13.0f }, {  2.5f, 13.0f }, {  2.5f, 13.0f }, /* R */
+    { -2.5f, 13.0f }, { -2.5f, 13.0f }, { -2.5f, 13.0f }, { -2.5f, 13.0f }, /* L */
+};
+
+/* AWP (10): first shot perfect; subsequent shots have massive kick.
+ * In practice the 1.5 s fire_rate > SPRAY_RESET_TIME (0.4 s), so the pattern
+ * always resets between shots — giving perfect first-shot accuracy every time.
+ * The large values here are a safety net and enforce the bolt-action feel if
+ * somehow fired rapidly. */
+const SprayPoint SPRAY_AWP[10] = {
+    {  0.0f,  0.0f }, {  0.0f, 20.0f }, {  0.0f, 40.0f }, {  0.0f, 60.0f },
+    {  0.0f, 80.0f }, {  0.0f, 80.0f }, {  0.0f, 80.0f }, {  0.0f, 80.0f },
+    {  0.0f, 80.0f }, {  0.0f, 80.0f },
+};
+
+/* ---------------------------------------------------------------------------
+ * Helpers
+ * --------------------------------------------------------------------------- */
+
+static const SprayPoint *get_pattern(WeaponId id, int *out_len)
+{
+    switch (id) {
+        case WEAPON_AK:  *out_len = 30; return SPRAY_AK;
+        case WEAPON_M4:  *out_len = 30; return SPRAY_M4;
+        case WEAPON_AWP: *out_len = 10; return SPRAY_AWP;
+        default:         *out_len = 12; return SPRAY_PISTOL;
+    }
+}
+
 static Sound make_gunshot_sound(void)
 {
     const unsigned int RATE  = 44100;
     const float        DUR   = 0.22f;
     unsigned int       count = (unsigned int)(RATE * DUR);
     short *buf = RL_MALLOC(count * sizeof(short));
-
     for (unsigned int i = 0; i < count; i++) {
         float t     = (float)i / (float)count;
-        float env   = expf(-t * 14.0f);   /* sharp crack, quick decay */
+        float env   = expf(-t * 14.0f);
         float noise = ((float)rand() / (float)RAND_MAX) * 2.0f - 1.0f;
         buf[i] = (short)(env * noise * 18000.0f);
     }
-
     Wave  w = { count, RATE, 16, 1, buf };
     Sound s = LoadSoundFromWave(w);
     RL_FREE(buf);
@@ -27,9 +100,15 @@ static Sound make_gunshot_sound(void)
     return s;
 }
 
+/* ---------------------------------------------------------------------------
+ * Public API
+ * --------------------------------------------------------------------------- */
+
 void weapon_init(WeaponState *w)
 {
+    memset(w, 0, sizeof(*w));
     w->sound = make_gunshot_sound();
+    weapon_switch(w, WEAPON_PISTOL);
 }
 
 void weapon_free(WeaponState *w)
@@ -37,19 +116,98 @@ void weapon_free(WeaponState *w)
     UnloadSound(w->sound);
 }
 
-RayHit weapon_shoot(const WeaponState *w, const Map *m, const PlayerState *p)
+void weapon_switch(WeaponState *w, WeaponId id)
 {
-    /* Apply random spread to yaw and pitch */
-    float spread = WEAPON_SPREAD * DEG2RAD;
-    float yr = p->yaw   * DEG2RAD + ((float)rand() / RAND_MAX * 2.0f - 1.0f) * spread;
-    float pr = p->pitch * DEG2RAD + ((float)rand() / RAND_MAX * 2.0f - 1.0f) * spread;
+    const WeaponDef *def = &WEAPONS[id];
+    w->weapon_id    = id;
+    w->ammo_mag     = def->ammo_mag;
+    w->ammo_reserve = def->ammo_reserve;
+    w->shot_index   = 0;
+    w->reset_timer  = 0.0f;
+    w->shot_timer   = 0.0f;
+    w->reload_timer = 0.0f;
+}
 
-    Vector3 dir = {
-         sinf(yr) * cosf(pr),
-         sinf(pr),
-        -cosf(yr) * cosf(pr)
-    };
+void weapon_round_reset(WeaponState *w)
+{
+    const WeaponDef *def = &WEAPONS[w->weapon_id];
+    w->ammo_mag     = def->ammo_mag;
+    w->ammo_reserve = def->ammo_reserve;
+    w->shot_index   = 0;
+    w->reset_timer  = 0.0f;
+    w->shot_timer   = 0.0f;
+    w->reload_timer = 0.0f;
+}
+
+void weapon_reload(WeaponState *w)
+{
+    const WeaponDef *def = &WEAPONS[w->weapon_id];
+    if (w->reload_timer > 0.0f)       return;
+    if (w->ammo_mag >= def->ammo_mag)  return;
+    if (w->ammo_reserve <= 0)          return;
+    w->reload_timer = def->reload_time;
+}
+
+void weapon_tick(WeaponState *w, float dt)
+{
+    if (w->shot_timer > 0.0f) {
+        w->shot_timer -= dt;
+        if (w->shot_timer < 0.0f) w->shot_timer = 0.0f;
+    }
+
+    if (w->reload_timer > 0.0f) {
+        w->reload_timer -= dt;
+        if (w->reload_timer <= 0.0f) {
+            const WeaponDef *def = &WEAPONS[w->weapon_id];
+            int needed = def->ammo_mag - w->ammo_mag;
+            if (needed > w->ammo_reserve) needed = w->ammo_reserve;
+            w->ammo_mag     += needed;
+            w->ammo_reserve -= needed;
+            w->reload_timer  = 0.0f;
+        }
+    }
+
+    /* Accumulate inactivity; reset spray pattern after SPRAY_RESET_TIME */
+    if (w->shot_index > 0) {
+        w->reset_timer += dt;
+        if (w->reset_timer >= SPRAY_RESET_TIME) {
+            w->shot_index  = 0;
+            w->reset_timer = 0.0f;
+        }
+    }
+}
+
+bool weapon_try_fire(WeaponState *w, bool trigger_pressed, bool trigger_held,
+                     const PlayerState *p, Vector3 *out_dir)
+{
+    const WeaponDef *def = &WEAPONS[w->weapon_id];
+
+    bool fire = def->semi_auto ? trigger_pressed : trigger_held;
+    if (!fire)                  return false;
+    if (w->shot_timer > 0.0f)  return false;
+    if (w->reload_timer > 0.0f) return false;
+    if (w->ammo_mag <= 0)       return false;
+
+    /* Look up spray offset for this shot */
+    int               pat_len;
+    const SprayPoint *pat = get_pattern(w->weapon_id, &pat_len);
+    int               idx = (w->shot_index < pat_len) ? w->shot_index : pat_len - 1;
+
+    float yr = (p->yaw   + pat[idx].yaw)   * DEG2RAD;
+    float pr = (p->pitch + pat[idx].pitch)  * DEG2RAD;
+
+    out_dir->x =  sinf(yr) * cosf(pr);
+    out_dir->y =  sinf(pr);
+    out_dir->z = -cosf(yr) * cosf(pr);
 
     PlaySound(w->sound);
-    return map_raycast(m, p->position, dir);
+    w->ammo_mag--;
+    w->shot_timer  = def->fire_rate;
+    w->reset_timer = 0.0f;   /* restart inactivity clock */
+    w->shot_index++;
+
+    /* Auto-reload when mag empties */
+    if (w->ammo_mag == 0) weapon_reload(w);
+
+    return true;
 }

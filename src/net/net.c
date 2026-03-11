@@ -77,7 +77,7 @@ void net_client_recv(NetClient *c)
 {
     if (!c->connected) return;
 
-    uint8_t  buf[256];
+    uint8_t  buf[512];
     PktWorld latest;
     memset(&latest, 0, sizeof(latest));
     bool     got_world = false;
@@ -104,6 +104,13 @@ void net_client_recv(NetClient *c)
         c->t_score     = latest.t_score;
         c->win_team    = latest.win_team;
     }
+}
+
+void net_client_shoot(NetClient *c, float dx, float dy, float dz)
+{
+    if (!c->connected) return;
+    PktShoot pkt = { PKT_SHOOT, c->my_id, dx, dy, dz };
+    send(c->sock, &pkt, sizeof(pkt), 0);
 }
 
 void net_client_buy(NetClient *c, uint8_t weapon_id)

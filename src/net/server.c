@@ -23,7 +23,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-#define CLIENT_TIMEOUT  5.0   /* drop client if unseen for this many seconds */
+#define CLIENT_TIMEOUT  5.0
 
 static volatile int g_running = 1;
 static void handle_sigint(int sig) { (void)sig; g_running = 0; }
@@ -31,17 +31,16 @@ static void handle_sigint(int sig) { (void)sig; g_running = 0; }
 typedef struct {
     struct sockaddr_in addr;
     PlayerState        player;
-    uint8_t            last_buttons;
-    bool               shoot_pending;
     bool               active;
     bool               dead;
     Team               team;
-    uint8_t            weapon;   /* WeaponId */
+    uint8_t            weapon;
+    int                ammo_mag;
+    int                ammo_reserve;
     int                money;
     double             last_seen;
 } SrvClient;
 
-/* CT spawns: +Z side of the room */
 static const Vector3 CT_SPAWNS[5] = {
     { -300.0f, PLAYER_EYE_STAND,  300.0f },
     {  300.0f, PLAYER_EYE_STAND,  300.0f },
@@ -50,7 +49,6 @@ static const Vector3 CT_SPAWNS[5] = {
     {  150.0f, PLAYER_EYE_STAND,  200.0f },
 };
 
-/* T spawns: -Z side of the room */
 static const Vector3 T_SPAWNS[5] = {
     { -300.0f, PLAYER_EYE_STAND, -300.0f },
     {  300.0f, PLAYER_EYE_STAND, -300.0f },
@@ -71,8 +69,8 @@ static Vector3 team_spawn(SrvClient *clients, int id)
     const Vector3 *spawns = (team == TEAM_CT) ? CT_SPAWNS : T_SPAWNS;
     int idx = 0;
     for (int j = 0; j < MAX_PLAYERS; j++) {
-        if (j == id || !clients[j].active) continue;
-        if (clients[j].team == team) idx++;
+        if (j == id || !clients[j].active || clients[j].team != team) continue;
+        idx++;
     }
     return spawns[idx % 5];
 }
@@ -102,66 +100,63 @@ static void server_restart_round(SrvClient *clients)
         clients[i].dead          = false;
         clients[i].player.health = 100;
         clients[i].player.velocity = (Vector3){ 0, 0, 0 };
-        clients[i].shoot_pending = false;
-        clients[i].last_buttons  = 0;
-        clients[i].weapon        = WEAPON_PISTOL;  /* pistol always free at round start */
+        /* Refill ammo for current weapon */
+        clients[i].ammo_mag     = WEAPONS[clients[i].weapon].ammo_mag;
+        clients[i].ammo_reserve = WEAPONS[clients[i].weapon].ammo_reserve;
         if (clients[i].team == TEAM_CT) {
-            clients[i].player.position = CT_SPAWNS[ct_idx % 5];
-            ct_idx++;
+            clients[i].player.position = CT_SPAWNS[ct_idx++ % 5];
         } else {
-            clients[i].player.position = T_SPAWNS[t_idx % 5];
-            t_idx++;
+            clients[i].player.position = T_SPAWNS[t_idx++ % 5];
         }
     }
 }
 
-static void server_apply_shoot(SrvClient *clients, int shooter_id, const Map *map)
+/* Hit detection using the ray direction sent by the client */
+static void server_apply_shoot(SrvClient *clients, int shooter_id,
+                               const Map *map, Vector3 dir)
 {
-    SrvClient *s  = &clients[shooter_id];
-    float yr = s->player.yaw   * DEG2RAD;
-    float pr = s->player.pitch * DEG2RAD;
-    Vector3 dir = {
-         sinf(yr) * cosf(pr),
-         sinf(pr),
-        -cosf(yr) * cosf(pr)
-    };
-    Vector3 origin = s->player.position;
+    SrvClient *s      = &clients[shooter_id];
+    Vector3    origin = s->player.position;
 
     RayHit wall   = map_raycast(map, origin, dir);
     float  wall_t = wall.hit ? wall.t : 1e30f;
 
     for (int i = 0; i < MAX_PLAYERS; i++) {
         if (i == shooter_id || !clients[i].active || clients[i].dead) continue;
-        if (clients[i].team == s->team) continue;  /* no friendly fire */
+        if (clients[i].team == s->team) continue;
 
-        PlayerState *p  = &clients[i].player;
-        Vector3 bmin = { p->position.x - PLAYER_HALF_WIDTH,
-                         p->position.y - PLAYER_EYE_STAND,
-                         p->position.z - PLAYER_HALF_WIDTH };
-        Vector3 bmax = { p->position.x + PLAYER_HALF_WIDTH,
-                         p->position.y,
-                         p->position.z + PLAYER_HALF_WIDTH };
+        PlayerState *p   = &clients[i].player;
+        Vector3      bmin = { p->position.x - PLAYER_HALF_WIDTH,
+                              p->position.y - PLAYER_EYE_STAND,
+                              p->position.z - PLAYER_HALF_WIDTH };
+        Vector3      bmax = { p->position.x + PLAYER_HALF_WIDTH,
+                              p->position.y,
+                              p->position.z + PLAYER_HALF_WIDTH };
 
         float pt = map_ray_hits_box(origin, dir, bmin, bmax);
         if (pt > 0.0f && pt < wall_t) {
-            clients[i].player.health -= 34;
+            int dmg = WEAPONS[s->weapon].damage;
+            clients[i].player.health -= dmg;
             if (clients[i].player.health <= 0) {
                 clients[i].player.health = 0;
                 clients[i].dead = true;
                 economy_add(&clients[shooter_id].money, MONEY_KILL);
-                printf("[server] player %d (%s) killed player %d (%s)  +$%d\n",
+                printf("[server] player %d (%s) killed player %d (%s) with %s  +$%d\n",
                        shooter_id, s->team == TEAM_CT ? "CT" : "T",
                        i, clients[i].team == TEAM_CT ? "CT" : "T",
-                       MONEY_KILL);
+                       WEAPONS[s->weapon].name, MONEY_KILL);
+            } else {
+                printf("[server] player %d hit player %d for %d hp (%d remain)\n",
+                       shooter_id, i, dmg, clients[i].player.health);
             }
         }
     }
 }
 
 static void server_recv_packets(int sock, SrvClient *clients, double now,
-                                const RoundState *round)
+                                const RoundState *round, const Map *map)
 {
-    uint8_t            buf[256];
+    uint8_t            buf[512];
     struct sockaddr_in addr;
     socklen_t          addrlen;
 
@@ -197,6 +192,8 @@ static void server_recv_packets(int sock, SrvClient *clients, double now,
                 clients[id].active = true;
                 clients[id].money  = MONEY_START;
                 clients[id].weapon = WEAPON_PISTOL;
+                clients[id].ammo_mag     = WEAPONS[WEAPON_PISTOL].ammo_mag;
+                clients[id].ammo_reserve = WEAPONS[WEAPON_PISTOL].ammo_reserve;
 
                 int ct_count = 0, t_count = 0;
                 for (int j = 0; j < MAX_PLAYERS; j++) {
@@ -211,8 +208,7 @@ static void server_recv_packets(int sock, SrvClient *clients, double now,
                 clients[id].dead = (round->phase == PHASE_END);
 
                 printf("[server] player %d connected as %s from %s:%d  $%d\n",
-                       id,
-                       clients[id].team == TEAM_CT ? "CT" : "T",
+                       id, clients[id].team == TEAM_CT ? "CT" : "T",
                        inet_ntoa(addr.sin_addr), ntohs(addr.sin_port),
                        clients[id].money);
             }
@@ -231,26 +227,30 @@ static void server_recv_packets(int sock, SrvClient *clients, double now,
 
             clients[id].last_seen = now;
 
-            if (!clients[id].dead && round->phase == PHASE_LIVE) {
-                clients[id].player.position.x = pkt.x;
-                clients[id].player.position.y = pkt.y;
-                clients[id].player.position.z = pkt.z;
-                clients[id].player.yaw        = pkt.yaw;
-                clients[id].player.pitch      = pkt.pitch;
-
-                uint8_t prev = clients[id].last_buttons;
-                uint8_t curr = pkt.buttons;
-                if ((curr & BTN_SHOOT) && !(prev & BTN_SHOOT))
-                    clients[id].shoot_pending = true;
-                clients[id].last_buttons = curr;
-            } else if (round->phase == PHASE_BUY) {
-                /* Allow position updates during buy phase so player can move */
+            /* Always trust position during buy phase and live phase (when alive) */
+            if ((round->phase == PHASE_BUY) ||
+                (round->phase == PHASE_LIVE && !clients[id].dead)) {
                 clients[id].player.position.x = pkt.x;
                 clients[id].player.position.y = pkt.y;
                 clients[id].player.position.z = pkt.z;
                 clients[id].player.yaw        = pkt.yaw;
                 clients[id].player.pitch      = pkt.pitch;
             }
+
+        } else if (type == PKT_SHOOT && n >= (ssize_t)sizeof(PktShoot)) {
+            PktShoot pkt;
+            memcpy(&pkt, buf, sizeof(PktShoot));
+            int id = pkt.player_id;
+            if (id < 0 || id >= MAX_PLAYERS || !clients[id].active) continue;
+            if (!addr_eq(&clients[id].addr, &addr)) continue;
+            if (clients[id].dead || round->phase != PHASE_LIVE) continue;
+            if (clients[id].ammo_mag <= 0) continue;
+
+            clients[id].last_seen = now;
+            clients[id].ammo_mag--;
+
+            Vector3 dir = { pkt.dx, pkt.dy, pkt.dz };
+            server_apply_shoot(clients, id, map, dir);
 
         } else if (type == PKT_BUY && n >= (ssize_t)sizeof(PktBuy)) {
             PktBuy pkt;
@@ -259,13 +259,26 @@ static void server_recv_packets(int sock, SrvClient *clients, double now,
             if (id < 0 || id >= MAX_PLAYERS || !clients[id].active) continue;
             if (!addr_eq(&clients[id].addr, &addr)) continue;
             if (round->phase != PHASE_BUY) continue;
-            if (pkt.weapon_id >= WEAPON_COUNT) continue;
-            if (clients[id].money < WEAPONS[pkt.weapon_id].price) continue;
+            uint8_t wid = pkt.weapon_id;
+            if (wid >= WEAPON_COUNT) continue;
 
-            economy_add(&clients[id].money, -WEAPONS[pkt.weapon_id].price);
-            clients[id].weapon = pkt.weapon_id;
-            printf("[server] player %d bought %s  $%d remaining\n",
-                   id, WEAPONS[pkt.weapon_id].name, clients[id].money);
+            if (clients[id].weapon == wid) {
+                /* Re-buy same weapon = ammo refill */
+                if (clients[id].money < WEAPONS[wid].ammo_price) continue;
+                economy_add(&clients[id].money, -WEAPONS[wid].ammo_price);
+                clients[id].ammo_reserve = WEAPONS[wid].ammo_reserve;
+                printf("[server] player %d refilled %s ammo  $%d remaining\n",
+                       id, WEAPONS[wid].name, clients[id].money);
+            } else {
+                /* Buy new weapon */
+                if (clients[id].money < WEAPONS[wid].price) continue;
+                economy_add(&clients[id].money, -WEAPONS[wid].price);
+                clients[id].weapon       = wid;
+                clients[id].ammo_mag     = WEAPONS[wid].ammo_mag;
+                clients[id].ammo_reserve = WEAPONS[wid].ammo_reserve;
+                printf("[server] player %d bought %s  $%d remaining\n",
+                       id, WEAPONS[wid].name, clients[id].money);
+            }
 
         } else if (type == PKT_DISCONNECT && n >= (ssize_t)sizeof(PktDisconnect)) {
             PktDisconnect pkt;
@@ -279,21 +292,12 @@ static void server_recv_packets(int sock, SrvClient *clients, double now,
     }
 }
 
-static void server_tick(SrvClient *clients, const Map *map, RoundState *round, float dt)
+static void server_tick(SrvClient *clients, RoundState *round, float dt)
 {
     if (round->phase == PHASE_BUY) {
-        for (int i = 0; i < MAX_PLAYERS; i++) clients[i].shoot_pending = false;
         round_tick_buy(round, dt);
 
     } else if (round->phase == PHASE_LIVE) {
-        for (int i = 0; i < MAX_PLAYERS; i++) {
-            if (!clients[i].active || clients[i].dead) continue;
-            if (clients[i].shoot_pending) {
-                server_apply_shoot(clients, i, map);
-                clients[i].shoot_pending = false;
-            }
-        }
-
         int ct_alive = 0, t_alive = 0, ct_total = 0, t_total = 0;
         for (int i = 0; i < MAX_PLAYERS; i++) {
             if (!clients[i].active) continue;
@@ -305,7 +309,6 @@ static void server_tick(SrvClient *clients, const Map *map, RoundState *round, f
                 if (!clients[i].dead) t_alive++;
             }
         }
-
         if (round_tick_live(round, dt, ct_alive, t_alive, ct_total, t_total)) {
             server_distribute_round_money(clients, round);
             printf("[server] round over — %s  (CT:%d T:%d)\n",
@@ -314,8 +317,6 @@ static void server_tick(SrvClient *clients, const Map *map, RoundState *round, f
         }
 
     } else { /* PHASE_END */
-        for (int i = 0; i < MAX_PLAYERS; i++) clients[i].shoot_pending = false;
-
         if (round_tick_end(round, dt)) {
             round_start(round);
             server_restart_round(clients);
@@ -332,19 +333,22 @@ static void server_send_world(int sock, SrvClient *clients, const RoundState *ro
     pkt.type = PKT_WORLD;
 
     for (int i = 0; i < MAX_PLAYERS; i++) {
-        pkt.players[i].x      = clients[i].player.position.x;
-        pkt.players[i].y      = clients[i].player.position.y;
-        pkt.players[i].z      = clients[i].player.position.z;
-        pkt.players[i].yaw    = clients[i].player.yaw;
-        pkt.players[i].health = (uint8_t)(clients[i].player.health > 0
-                                          ? clients[i].player.health : 0);
-        pkt.players[i].active = clients[i].active ? 1 : 0;
-        pkt.players[i].team   = (uint8_t)clients[i].team;
-        pkt.players[i].flags  = clients[i].dead ? 1 : 0;
-        pkt.players[i].money  = (uint16_t)(clients[i].money > 0 ? clients[i].money : 0);
+        pkt.players[i].x            = clients[i].player.position.x;
+        pkt.players[i].y            = clients[i].player.position.y;
+        pkt.players[i].z            = clients[i].player.position.z;
+        pkt.players[i].yaw          = clients[i].player.yaw;
+        pkt.players[i].health       = (uint8_t)(clients[i].player.health > 0
+                                                ? clients[i].player.health : 0);
+        pkt.players[i].active       = clients[i].active ? 1 : 0;
+        pkt.players[i].team         = (uint8_t)clients[i].team;
+        pkt.players[i].flags        = clients[i].dead ? 1 : 0;
+        pkt.players[i].money        = (uint16_t)(clients[i].money > 0
+                                                 ? clients[i].money : 0);
+        pkt.players[i].weapon       = clients[i].weapon;
+        pkt.players[i].ammo_mag     = (uint8_t)clients[i].ammo_mag;
+        pkt.players[i].ammo_reserve = (uint8_t)clients[i].ammo_reserve;
     }
 
-    /* Timer shows buy countdown during buy phase, round countdown otherwise */
     float timer_val = (round->phase == PHASE_BUY) ? round->buy_timer : round->timer;
     pkt.phase       = (uint8_t)round->phase;
     pkt.round_ticks = (uint16_t)(timer_val * 10.0f);
@@ -355,8 +359,7 @@ static void server_send_world(int sock, SrvClient *clients, const RoundState *ro
     for (int i = 0; i < MAX_PLAYERS; i++) {
         if (!clients[i].active) continue;
         sendto(sock, &pkt, sizeof(pkt), 0,
-               (struct sockaddr *)&clients[i].addr,
-               sizeof(clients[i].addr));
+               (struct sockaddr *)&clients[i].addr, sizeof(clients[i].addr));
     }
 }
 
@@ -415,8 +418,8 @@ void server_run(int port)
         }
         last_tick = now_ts;
 
-        server_recv_packets(sock, clients, now, &round);
-        server_tick(clients, &map, &round, (float)SERVER_DT);
+        server_recv_packets(sock, clients, now, &round, &map);
+        server_tick(clients, &round, SERVER_DT);
         server_send_world(sock, clients, &round);
 
         for (int i = 0; i < MAX_PLAYERS; i++) {

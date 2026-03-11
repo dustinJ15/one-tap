@@ -65,7 +65,7 @@ one-tap/
 | 5 | Two players | UDP networking, clients see and can shoot each other | ✓ |
 | 6 | Rounds | Teams, death, elimination win condition, round timer | ✓ |
 | 7 | Economy | Money, kill rewards, buy menu, starting pistol | ✓ |
-| 8 | Weapon arsenal | 4-5 weapons with distinct feel, ammo system | |
+| 8 | Weapon arsenal | 4-5 weapons with distinct feel, ammo system | ✓ |
 | 9 | Bomb objective | Plant, defuse, explosion — full CT vs T loop | |
 | 10 | Real map | Trenchbroom workflow, map file format, proper de_ layout | |
 

@@ -11,6 +11,7 @@ typedef struct {
     int   right;       /* +1/-1/0 */
     bool  jump;        /* rising edge only */
     bool  crouch;
+    float max_speed;   /* 0 = use weapon/crouch defaults */
 } PlayerInput;
 
 /* CS 1.6 movement constants */
