@@ -28,7 +28,8 @@ typedef struct {
 #define PLAYER_EYE_CROUCH      36.0f   /* eye height crouching */
 #define PLAYER_HALF_WIDTH      16.0f   /* collision box half-width (X and Z) */
 
-#define MOUSE_SENSITIVITY       0.1f
+#define MOUSE_SENSITIVITY       2.0f   /* Source-equivalent: degrees = counts * sens * 0.022 */
+#define SOURCE_YAW              0.022f
 #define CAMERA_FOV             90.0f
 
 typedef struct {

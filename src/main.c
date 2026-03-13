@@ -24,7 +24,7 @@ int main(int argc, char **argv)
     const char *server_ip    = NULL;
     int         net_port     = NET_PORT;
     bool        is_server    = false;
-    bool        testing = false;
+    bool        server_testing = false;
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--server") == 0) {
@@ -32,7 +32,7 @@ int main(int argc, char **argv)
             if (i + 1 < argc && argv[i + 1][0] != '-')
                 net_port = atoi(argv[++i]);
         } else if (strcmp(argv[i], "--testing") == 0) {
-            testing = true;
+            server_testing = true;
         } else if (strcmp(argv[i], "--connect") == 0) {
             server_ip = "127.0.0.1";
             if (i + 1 < argc && argv[i + 1][0] != '-')
@@ -40,7 +40,7 @@ int main(int argc, char **argv)
         }
     }
 
-    if (is_server) { server_run(net_port, testing); return 0; }
+    if (is_server) { server_run(net_port, server_testing); return 0; }
 
     /* --- Window / audio init --- */
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE);
@@ -61,14 +61,18 @@ int main(int argc, char **argv)
     weapon_init(&slots[0]);   /* primary - empty until bought */
     weapon_init(&slots[1]);   /* pistol - always have it */
     int  active_slot    = 1;  /* start on pistol */
+    int  last_slot      = 1;  /* for Q quickswitch */
     bool has_primary    = false;
     bool awp_wants_zoom = false;
 
     BulletHole holes[MAX_HOLES];
     int     hole_count     = 0;
     bool    buy_menu_open  = false;
-    bool    paused         = false;
-    uint8_t prev_phase     = 0xFF;  /* for detecting PHASE_END → PHASE_BUY transition */
+    bool    paused          = false;
+    bool    settings_open   = false;
+    bool    controls_open   = false;
+    float   sensitivity     = MOUSE_SENSITIVITY;
+    uint8_t prev_phase      = 0xFF;  /* for detecting PHASE_END → PHASE_BUY transition */
     float   hint_timer     = 5.0f;  /* seconds to show F11 hint on startup */
 
     /* --- Networking --- */
@@ -85,6 +89,7 @@ int main(int argc, char **argv)
         bool round_end = net.connected && (net.round_phase == PHASE_END);
         bool in_buy    = net.connected && (net.round_phase == PHASE_BUY);
 
+        bool testing = net.testing;
         if (!in_buy && !testing) buy_menu_open = false;
 
         /* --- Sync weapons from server --- */
@@ -128,24 +133,25 @@ int main(int argc, char **argv)
         float move_factor = (active_slot == 2 || (active_slot == 0 && !has_primary))
                             ? 1.0f : WEAPONS[active_ws->weapon_id].move_factor;
 
-        /* --- Lock cursor every frame so it can't escape the window --- */
-        if (IsWindowFocused() && IsCursorHidden() == false) DisableCursor();
+        /* --- Lock cursor every frame so it can't escape the window (only when not paused) --- */
+        if (!paused && IsWindowFocused() && !IsCursorHidden()) DisableCursor();
 
         /* --- Build PlayerInput --- */
         /* When zoomed, scale sens so physical mouse movement covers the same
          * world angle as unzoomed: factor = tan(half_zoom_fov) / tan(half_fov) */
-        float sens = MOUSE_SENSITIVITY;
+        float sens = sensitivity * SOURCE_YAW;
         if (awp_zoomed)
             sens *= tanf(10.0f * DEG2RAD) / tanf(45.0f * DEG2RAD);  /* 20°/2 over 90°/2 */
-        Vector2 md = GetMouseDelta();
+        Vector2 md = paused ? (Vector2){0,0} : GetMouseDelta();
         PlayerInput input = {
             .yaw_delta   =  md.x * sens,
             .pitch_delta = -md.y * sens,
             .fwd    = IsKeyDown(KEY_W)          - IsKeyDown(KEY_S),
             .right  = IsKeyDown(KEY_D)          - IsKeyDown(KEY_A),
             .jump   = IsKeyPressed(KEY_SPACE) || (GetMouseWheelMove() < 0.0f),
-            .crouch = IsKeyDown(KEY_LEFT_CONTROL),
-            .max_speed = (move_factor < 1.0f) ? (PLAYER_SPEED_GROUND * move_factor) : 0.0f,
+            .crouch = IsKeyDown(KEY_LEFT_SHIFT),
+            .max_speed = IsKeyDown(KEY_LEFT_CONTROL) ? 135.0f
+                       : (move_factor < 1.0f) ? (PLAYER_SPEED_GROUND * move_factor) : 0.0f,
         };
 
         if (!am_dead && !round_end) {
@@ -158,43 +164,74 @@ int main(int argc, char **argv)
         /* --- Misc keys --- */
         if (IsKeyPressed(KEY_F11)) ToggleFullscreen();
 
-        /* ESC: close buy menu first, then toggle pause */
+        /* ESC: close buy menu first, then submenu, then toggle pause */
         if (IsKeyPressed(KEY_ESCAPE)) {
             if (buy_menu_open) {
                 buy_menu_open = false;
+            } else if (controls_open) {
+                controls_open = false;
+            } else if (settings_open) {
+                settings_open = false;
             } else {
                 paused = !paused;
-                if (paused) EnableCursor();
-                else        DisableCursor();
+                if (paused) { EnableCursor(); }
+                else { DisableCursor(); settings_open = false; controls_open = false; }
             }
+        }
+
+        /* --- Network: send input, receive world state --- */
+        if (net.connected) {
+            uint8_t buttons = 0;
+            if (!paused && !am_dead) {
+                if (IsKeyDown(KEY_W))            buttons |= BTN_FORWARD;
+                if (IsKeyDown(KEY_S))            buttons |= BTN_BACK;
+                if (IsKeyDown(KEY_A))            buttons |= BTN_LEFT;
+                if (IsKeyDown(KEY_D))            buttons |= BTN_RIGHT;
+                if (IsKeyDown(KEY_SPACE))        buttons |= BTN_JUMP;
+                if (IsKeyDown(KEY_LEFT_SHIFT))   buttons |= BTN_CROUCH;
+            }
+            net_client_send_input(&net, buttons, player.yaw, player.pitch,
+                                  player.position.x, player.position.y, player.position.z);
+            net_client_recv(&net);
+
+            am_dead   = net.remote[net.my_id].flags & 1;
+            round_end = net.round_phase == PHASE_END;
+            in_buy    = net.round_phase == PHASE_BUY;
         }
 
         if (paused) goto draw;
 
-        if (IsKeyPressed(KEY_R) && !am_dead && !round_end && !in_buy && active_slot < 2)
+        if (IsKeyPressed(KEY_R) && !am_dead && active_slot < 2)
             weapon_reload(active_ws);
 
         /* AWP zoom toggle */
-        if (awp_active && IsMouseButtonPressed(MOUSE_BUTTON_RIGHT) && !am_dead && !in_buy)
+        if (awp_active && IsMouseButtonPressed(MOUSE_BUTTON_RIGHT) && !am_dead)
             awp_wants_zoom = !awp_wants_zoom;
 
         /* Slot switching (only when buy menu is closed) */
-        if (!buy_menu_open && !am_dead && !round_end) {
-            if (IsKeyPressed(KEY_ONE) && has_primary) {
-                active_slot = 0;
-                if (net.connected) net_client_equip(&net, 0);
+        if (!buy_menu_open && !am_dead) {
+            int new_slot = -1;
+            if (IsKeyPressed(KEY_ONE) && has_primary)  new_slot = 0;
+            else if (IsKeyPressed(KEY_TWO))             new_slot = 1;
+            else if (IsKeyPressed(KEY_THREE))           new_slot = 2;
+            else if (IsKeyPressed(KEY_Q)) {
+                /* quickswitch: go to last slot if it differs, else toggle 0↔1 */
+                new_slot = (last_slot != active_slot) ? last_slot
+                         : (active_slot == 0 ? 1 : (has_primary ? 0 : 1));
             }
-            if (IsKeyPressed(KEY_TWO)) {
-                active_slot = 1;
-                awp_wants_zoom = false;
-                if (net.connected) net_client_equip(&net, 1);
-            }
-            if (IsKeyPressed(KEY_THREE)) {
-                active_slot = 2;
-                awp_wants_zoom = false;
-                if (net.connected) net_client_equip(&net, 2);
+            if (new_slot >= 0 && new_slot != active_slot) {
+                if (new_slot == 0 && !has_primary) new_slot = -1; /* no primary */
+                if (new_slot >= 0) {
+                    last_slot  = active_slot;
+                    active_slot = new_slot;
+                    if (new_slot != 0) awp_wants_zoom = false;
+                    if (net.connected) net_client_equip(&net, (uint8_t)new_slot);
+                }
             }
         }
+
+        if (testing && IsKeyPressed(KEY_F5) && net.connected)
+            net_client_end_round(&net);
 
         if ((in_buy || testing) && IsKeyPressed(KEY_B)) buy_menu_open = !buy_menu_open;
 
@@ -209,6 +246,13 @@ int main(int argc, char **argv)
         }
 
         /* --- Weapon tick (fire rate, reload, spray reset) --- */
+        /* In testing mode, keep mags full so the client never auto-reloads */
+        if (testing) {
+            for (int s = 0; s < 2; s++) {
+                if (slots[s].weapon_id < WEAPON_COUNT)
+                    slots[s].ammo_reserve = WEAPONS[slots[s].weapon_id].ammo_reserve;
+            }
+        }
         weapon_tick(&slots[0], dt);
         weapon_tick(&slots[1], dt);
 
@@ -218,9 +262,28 @@ int main(int argc, char **argv)
 
         Vector3 shot_dir;
         bool can_fire = active_slot < 2 && !(active_slot == 0 && !has_primary);
-        if (!am_dead && !round_end && !in_buy && can_fire &&
+        if (!am_dead && !round_end && can_fire &&
             weapon_try_fire(active_ws, trigger_pressed, trigger_held, &player, &shot_dir))
         {
+            /* Movement inaccuracy — random cone spread based on speed */
+            const WeaponDef *wdef = &WEAPONS[active_ws->weapon_id];
+            float hspeed   = sqrtf(player.velocity.x * player.velocity.x +
+                                   player.velocity.z * player.velocity.z);
+            float spd_frac = fminf(hspeed / PLAYER_SPEED_GROUND, 1.0f);
+            float inac     = wdef->inaccuracy_stand
+                           + wdef->inaccuracy_move * spd_frac
+                           + (!player.on_ground ? wdef->inaccuracy_air : 0.0f);
+            if (inac > 0.0f) {
+                float phi = ((float)rand() / (float)RAND_MAX) * 2.0f * PI;
+                float r   = sqrtf((float)rand() / (float)RAND_MAX) * inac * DEG2RAD;
+                /* Recover angles from spray-modified direction, add inaccuracy */
+                float yr = atan2f(shot_dir.x, -shot_dir.z) + r * cosf(phi);
+                float pr = asinf(fmaxf(-1.0f, fminf(1.0f, shot_dir.y))) + r * sinf(phi);
+                shot_dir.x =  sinf(yr) * cosf(pr);
+                shot_dir.y =  sinf(pr);
+                shot_dir.z = -cosf(yr) * cosf(pr);
+            }
+
             /* Local visual: bullet hole */
             RayHit hit = map_raycast(&map, player.position, shot_dir);
             if (hit.hit && hole_count < MAX_HOLES) {
@@ -231,26 +294,6 @@ int main(int argc, char **argv)
             /* Network: send shot direction to server */
             if (net.connected)
                 net_client_shoot(&net, shot_dir.x, shot_dir.y, shot_dir.z);
-        }
-
-        /* --- Network: send input, receive world state --- */
-        if (net.connected) {
-            uint8_t buttons = 0;
-            if (!am_dead && !round_end) {
-                if (IsKeyDown(KEY_W))            buttons |= BTN_FORWARD;
-                if (IsKeyDown(KEY_S))            buttons |= BTN_BACK;
-                if (IsKeyDown(KEY_A))            buttons |= BTN_LEFT;
-                if (IsKeyDown(KEY_D))            buttons |= BTN_RIGHT;
-                if (IsKeyDown(KEY_SPACE))        buttons |= BTN_JUMP;
-                if (IsKeyDown(KEY_LEFT_CONTROL)) buttons |= BTN_CROUCH;
-            }
-            net_client_send_input(&net, buttons, player.yaw, player.pitch,
-                                  player.position.x, player.position.y, player.position.z);
-            net_client_recv(&net);
-
-            am_dead   = net.remote[net.my_id].flags & 1;
-            round_end = net.round_phase == PHASE_END;
-            in_buy    = net.round_phase == PHASE_BUY;
         }
 
         /* --- Draw --- */
@@ -267,9 +310,9 @@ int main(int argc, char **argv)
                                   holes[i].pos.y + n.y * 0.3f,
                                   holes[i].pos.z + n.z * 0.3f };
                     Vector3 size;
-                    if      (fabsf(n.y) > 0.5f) size = (Vector3){ 5.0f, 0.2f, 5.0f };
-                    else if (fabsf(n.x) > 0.5f) size = (Vector3){ 0.2f, 5.0f, 5.0f };
-                    else                         size = (Vector3){ 5.0f, 5.0f, 0.2f };
+                    if      (fabsf(n.y) > 0.5f) size = (Vector3){ 2.0f, 0.2f, 2.0f };
+                    else if (fabsf(n.x) > 0.5f) size = (Vector3){ 0.2f, 2.0f, 2.0f };
+                    else                         size = (Vector3){ 2.0f, 2.0f, 0.2f };
                     DrawCubeV(p, size, (Color){ 12, 12, 12, 255 });
                 }
 
@@ -306,7 +349,7 @@ int main(int argc, char **argv)
             }
 
             /* --- Crosshair (4-line gap style) — hidden when AWP scoped --- */
-            if (!am_dead && !in_buy && !paused && !awp_zoomed) {
+            if (!am_dead && !paused && !awp_zoomed) {
                 int gap = 5, len = 9;
                 DrawLine(cx - gap - len, cy, cx - gap,       cy, (Color){0,0,0,160});
                 DrawLine(cx + gap,       cy, cx + gap + len, cy, (Color){0,0,0,160});
@@ -361,7 +404,7 @@ int main(int argc, char **argv)
             }
 
             if (in_buy) {
-                const char *s = "BUY PHASE  [B] open menu  [R] reload";
+                const char *s = "BUY PHASE  [B] open menu";
                 int tw = MeasureText(s, 18);
                 DrawText(s, cx - tw/2, 84, 18, YELLOW);
             }
@@ -373,7 +416,7 @@ int main(int argc, char **argv)
                                      player.velocity.z * player.velocity.z);
                 DrawText(TextFormat("%.0f u/s", hspeed), 10, 34, 16, (Color){130,130,130,200});
                 if (player.crouching)
-                    DrawText("CROUCH", 10, 52, 16, (Color){130,130,130,200});
+                    DrawText(player.crouching ? "CROUCH" : IsKeyDown(KEY_LEFT_CONTROL) ? "WALK" : "", 10, 52, 16, (Color){130,130,130,200});
             }
 
             /* --- Bottom HUD --- */
@@ -470,20 +513,12 @@ int main(int argc, char **argv)
                 for (int i = 0; i < WEAPON_COUNT; i++) {
                     int wy = by + 68 + i * 36;
                     bool owned = (cur_weapon == (uint8_t)i);
-                    bool affordable = owned
-                        ? (my_money >= WEAPONS[i].ammo_price)
-                        : (my_money >= WEAPONS[i].price);
-                    Color wc = affordable ? WHITE : DARKGRAY;
+                    bool affordable = !owned && (my_money >= WEAPONS[i].price);
+                    Color wc = (owned || affordable) ? WHITE : DARKGRAY;
 
-                    const char *action;
-                    if (owned)
-                        action = (WEAPONS[i].ammo_price == 0)
-                                 ? "FREE  [equipped]"
-                                 : TextFormat("REFILL  $%d", WEAPONS[i].ammo_price);
-                    else
-                        action = (WEAPONS[i].price == 0)
-                                 ? "FREE"
-                                 : TextFormat("$%d", WEAPONS[i].price);
+                    const char *action = owned ? "[equipped]"
+                                       : (WEAPONS[i].price == 0 ? "FREE"
+                                          : TextFormat("$%d", WEAPONS[i].price));
 
                     DrawText(TextFormat("[%d] %-8s  %d+%d dmg  %s",
                              i + 1, WEAPONS[i].name,
@@ -533,28 +568,151 @@ int main(int argc, char **argv)
             /* Pause menu */
             if (paused) {
                 DrawRectangle(0, 0, sw, sh, (Color){ 0, 0, 0, 160 });
-                int pw = 300, ph = 160;
-                int px = cx - pw / 2, py = cy - ph / 2;
-                DrawRectangle(px, py, pw, ph, (Color){ 15, 15, 15, 240 });
-                DrawRectangleLines(px, py, pw, ph, (Color){ 80, 80, 80, 255 });
 
-                const char *title = "PAUSED";
-                int tw = MeasureText(title, 28);
-                DrawText(title, cx - tw / 2, py + 18, 28, RAYWHITE);
+                if (controls_open) {
+                    /* --- Controls page --- */
+                    int pw = 380, ph = 380;
+                    int px = cx - pw / 2, py = cy - ph / 2;
+                    DrawRectangle(px, py, pw, ph, (Color){ 15, 15, 15, 245 });
+                    DrawRectangleLines(px, py, pw, ph, (Color){ 80, 80, 80, 255 });
 
-                DrawLine(px + 16, py + 54, px + pw - 16, py + 54, (Color){ 60, 60, 60, 255 });
+                    int tw = MeasureText("CONTROLS", 24);
+                    DrawText("CONTROLS", cx - tw / 2, py + 14, 24, RAYWHITE);
+                    DrawLine(px + 16, py + 46, px + pw - 16, py + 46, (Color){ 60, 60, 60, 255 });
 
-                const char *resume_str = "[ESC]  Resume";
-                tw = MeasureText(resume_str, 20);
-                DrawText(resume_str, cx - tw / 2, py + 68, 20, LIGHTGRAY);
+                    /* Sensitivity row */
+                    int ry = py + 60;
+                    DrawText("Sensitivity", px + 20, ry, 18, LIGHTGRAY);
 
-                const char *quit_str = "[Q]  Quit";
-                tw = MeasureText(quit_str, 20);
-                DrawText(quit_str, cx - tw / 2, py + 104, 20, (Color){ 200, 80, 80, 255 });
+                    char sens_buf[16];
+                    snprintf(sens_buf, sizeof(sens_buf), "%.2f", sensitivity);
 
-                if (IsKeyPressed(KEY_Q)) {
-                    EndDrawing();
-                    goto quit;
+                    /* Button layout: [<]  value  [>] right-aligned */
+                    int btn_w = 36, btn_h = 22, val_w = 50;
+                    int bx_right = px + pw - 20;
+                    Rectangle btn_inc = { (float)(bx_right - btn_w),          (float)ry, (float)btn_w, (float)btn_h };
+                    Rectangle val_box = { (float)(bx_right - btn_w - val_w),  (float)ry, (float)val_w, (float)btn_h };
+                    Rectangle btn_dec = { (float)(bx_right - btn_w - val_w - btn_w), (float)ry, (float)btn_w, (float)btn_h };
+
+                    Vector2 mouse = GetMousePosition();
+                    bool dec_hover = CheckCollisionPointRec(mouse, btn_dec);
+                    bool inc_hover = CheckCollisionPointRec(mouse, btn_inc);
+
+                    DrawRectangleRec(btn_dec, dec_hover ? (Color){60,60,60,255} : (Color){35,35,35,255});
+                    DrawRectangleRec(btn_inc, inc_hover ? (Color){60,60,60,255} : (Color){35,35,35,255});
+                    DrawRectangleLinesEx(btn_dec, 1, (Color){80,80,80,255});
+                    DrawRectangleLinesEx(btn_inc, 1, (Color){80,80,80,255});
+
+                    int dw = MeasureText("<", 16); DrawText("<", (int)btn_dec.x + (btn_w - dw)/2, ry + 3, 16, LIGHTGRAY);
+                    int iw = MeasureText(">", 16); DrawText(">", (int)btn_inc.x + (btn_w - iw)/2, ry + 3, 16, LIGHTGRAY);
+                    int vw2 = MeasureText(sens_buf, 18);
+                    DrawText(sens_buf, (int)val_box.x + (val_w - vw2)/2, ry + 2, 18, YELLOW);
+
+                    bool clicked_dec = dec_hover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
+                    bool clicked_inc = inc_hover && IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
+                    if (IsKeyPressed(KEY_LEFT)  || clicked_dec)
+                        sensitivity = fmaxf(0.1f, sensitivity - 0.1f);
+                    if (IsKeyPressed(KEY_RIGHT) || clicked_inc)
+                        sensitivity = fminf(10.0f, sensitivity + 0.1f);
+
+                    /* Keybinds table */
+                    DrawLine(px + 16, ry + 30, px + pw - 16, ry + 30, (Color){ 40, 40, 40, 255 });
+                    static const char *binds[][2] = {
+                        { "Move",        "W A S D"       },
+                        { "Jump",        "Space / Scroll" },
+                        { "Crouch",      "Shift"         },
+                        { "Walk",        "Ctrl"          },
+                        { "Shoot",       "LMB"           },
+                        { "Scope (AWP)", "RMB"           },
+                        { "Reload",      "R"             },
+                        { "Quickswitch", "Q"             },
+                        { "Slot 1/2/3",  "1 / 2 / 3"    },
+                        { "Buy menu",    "B"             },
+                        { "Fullscreen",  "F11"           },
+                        { "Pause",       "ESC"           },
+                    };
+                    int num_binds = (int)(sizeof(binds) / sizeof(binds[0]));
+                    for (int bi = 0; bi < num_binds; bi++) {
+                        int by2 = ry + 42 + bi * 22;
+                        DrawText(binds[bi][0], px + 20,       by2, 16, (Color){ 160, 160, 160, 255 });
+                        int vw = MeasureText(binds[bi][1], 16);
+                        DrawText(binds[bi][1], px + pw - 20 - vw, by2, 16, LIGHTGRAY);
+                    }
+
+                    DrawLine(px + 16, py + ph - 34, px + pw - 16, py + ph - 34, (Color){ 40, 40, 40, 255 });
+                    tw = MeasureText("[ESC]  Back", 16);
+                    DrawText("[ESC]  Back", cx - tw / 2, py + ph - 24, 16, (Color){ 100, 100, 100, 255 });
+
+                } else if (settings_open) {
+                    /* --- Settings page --- */
+                    int pw = 300, ph = 160;
+                    int px = cx - pw / 2, py = cy - ph / 2;
+                    DrawRectangle(px, py, pw, ph, (Color){ 15, 15, 15, 245 });
+                    DrawRectangleLines(px, py, pw, ph, (Color){ 80, 80, 80, 255 });
+
+                    int tw = MeasureText("SETTINGS", 24);
+                    DrawText("SETTINGS", cx - tw / 2, py + 14, 24, RAYWHITE);
+                    DrawLine(px + 16, py + 46, px + pw - 16, py + 46, (Color){ 60, 60, 60, 255 });
+
+                    Vector2 mouse2 = GetMousePosition();
+
+                    /* Controls button */
+                    Rectangle ctrl_r = { (float)(px + 20), (float)(py + 62), (float)(pw - 40), 30 };
+                    bool ctrl_hov = CheckCollisionPointRec(mouse2, ctrl_r);
+                    if (ctrl_hov) DrawRectangleRec(ctrl_r, (Color){40,40,40,200});
+                    tw = MeasureText("Controls", 20);
+                    DrawText("Controls", cx - tw / 2, py + 68, 20, ctrl_hov ? RAYWHITE : LIGHTGRAY);
+
+                    /* Back button */
+                    Rectangle back_r2 = { (float)(px + 20), (float)(py + 112), (float)(pw - 40), 26 };
+                    bool back_hov2 = CheckCollisionPointRec(mouse2, back_r2);
+                    if (back_hov2) DrawRectangleRec(back_r2, (Color){40,40,40,200});
+                    tw = MeasureText("Back", 16);
+                    DrawText("Back", cx - tw / 2, py + 118, 16, back_hov2 ? RAYWHITE : (Color){ 100, 100, 100, 255 });
+
+                    if (IsKeyPressed(KEY_C) || (ctrl_hov && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)))
+                        controls_open = true;
+                    if (back_hov2 && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+                        settings_open = false;
+
+                } else {
+                    /* --- Main pause menu --- */
+                    int pw = 300, ph = 200;
+                    int px = cx - pw / 2, py = cy - ph / 2;
+                    DrawRectangle(px, py, pw, ph, (Color){ 15, 15, 15, 240 });
+                    DrawRectangleLines(px, py, pw, ph, (Color){ 80, 80, 80, 255 });
+
+                    const char *title = "PAUSED";
+                    int tw = MeasureText(title, 28);
+                    DrawText(title, cx - tw / 2, py + 16, 28, RAYWHITE);
+                    DrawLine(px + 16, py + 54, px + pw - 16, py + 54, (Color){ 60, 60, 60, 255 });
+
+                    Vector2 mouse3 = GetMousePosition();
+
+                    Rectangle res_r  = { (float)(px+20), (float)(py+62),  (float)(pw-40), 30 };
+                    Rectangle set_r  = { (float)(px+20), (float)(py+98),  (float)(pw-40), 30 };
+                    Rectangle quit_r = { (float)(px+20), (float)(py+148), (float)(pw-40), 30 };
+                    bool res_hov  = CheckCollisionPointRec(mouse3, res_r);
+                    bool set_hov  = CheckCollisionPointRec(mouse3, set_r);
+                    bool quit_hov = CheckCollisionPointRec(mouse3, quit_r);
+
+                    if (res_hov)  DrawRectangleRec(res_r,  (Color){40,40,40,200});
+                    if (set_hov)  DrawRectangleRec(set_r,  (Color){40,40,40,200});
+                    if (quit_hov) DrawRectangleRec(quit_r, (Color){60,20,20,200});
+
+                    DrawText("Resume",   cx - MeasureText("Resume",   20)/2, py + 68,  20, res_hov  ? RAYWHITE : LIGHTGRAY);
+                    DrawText("Settings", cx - MeasureText("Settings", 20)/2, py + 104, 20, set_hov  ? RAYWHITE : LIGHTGRAY);
+                    DrawText("Quit",     cx - MeasureText("Quit",     20)/2, py + 154, 20, quit_hov ? (Color){255,100,100,255} : (Color){200,80,80,255});
+
+                    bool lmb = IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
+                    if (IsKeyPressed(KEY_S) || (set_hov  && lmb)) settings_open = true;
+                    if (IsKeyPressed(KEY_Q) || (quit_hov && lmb)) { EndDrawing(); goto quit; }
+                    if (res_hov && lmb) {
+                        paused = false;
+                        DisableCursor();
+                        settings_open = false;
+                        controls_open = false;
+                    }
                 }
             }
 

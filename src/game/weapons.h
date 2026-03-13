@@ -6,8 +6,11 @@
 #include "../physics/movement.h"
 #include "economy.h"
 
-/* Seconds of no-fire before spray pattern resets to shot 0 */
-#define SPRAY_RESET_TIME  0.4f
+/* Delay after last shot before recovery begins. Must exceed the fastest
+ * rifle fire_rate (AK=0.10s) so full-auto spray never self-resets. */
+#define SPRAY_DECAY_DELAY  0.12f
+/* Pattern indices recovered per second once decay starts (~2s for full 30-shot reset). */
+#define SPRAY_DECAY_RATE   15.0f
 
 /*
  * Spray pattern: cumulative (yaw, pitch) offset in degrees added to the shot
@@ -34,7 +37,7 @@ typedef struct {
     float    shot_timer;    /* time until next shot allowed */
     float    reset_timer;   /* time since last shot (for pattern reset) */
     float    reload_timer;  /* > 0 while reloading */
-    int      shot_index;    /* position in spray pattern */
+    float    shot_index;    /* position in spray pattern (float for smooth decay) */
 } WeaponState;
 
 void   weapon_init(WeaponState *w);

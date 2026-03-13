@@ -19,6 +19,7 @@
 #define PKT_BUY        6
 #define PKT_SHOOT      7
 #define PKT_EQUIP      8
+#define PKT_DEBUG      9
 
 /* Button bitmask bits (shoot is now PKT_SHOOT, kept for future use) */
 #define BTN_FORWARD  (1 << 0)
@@ -75,11 +76,13 @@ typedef struct {
     uint8_t    ct_score;
     uint8_t    t_score;
     uint8_t    win_team;     /* 0=none 1=CT 2=T */
-} PktWorld;   /* 1 + 4 + 10*29 + 6 = 301 bytes */
+    uint8_t    flags;        /* bit0=testing */
+} PktWorld;
 
 typedef struct { uint8_t type; uint8_t player_id; }                    PktDisconnect;
 typedef struct { uint8_t type; uint8_t player_id; uint8_t weapon_id; } PktBuy;
 typedef struct { uint8_t type; uint8_t player_id; uint8_t slot; }      PktEquip;
+typedef struct { uint8_t type; uint8_t player_id; uint8_t cmd; }       PktDebug;
 
 #pragma pack(pop)
 
@@ -95,6 +98,7 @@ typedef struct {
     uint8_t            ct_score;
     uint8_t            t_score;
     uint8_t            win_team;
+    bool               testing;
 } NetClient;
 
 bool net_client_connect(NetClient *c, const char *server_ip, int port);
@@ -102,6 +106,7 @@ void net_client_send_input(NetClient *c, uint8_t buttons, float yaw, float pitch
                            float x, float y, float z);
 void net_client_buy(NetClient *c, uint8_t weapon_id);
 void net_client_equip(NetClient *c, uint8_t slot);
+void net_client_end_round(NetClient *c);
 void net_client_shoot(NetClient *c, float dx, float dy, float dz);
 void net_client_recv(NetClient *c);
 void net_client_disconnect(NetClient *c);

@@ -176,6 +176,23 @@ Key behavior: in the air you have very little ability to change direction (low a
 - [x] AWP movement penalty via max_speed in PlayerInput
 - [x] **Checkpoint:** weapon choice has real strategic tradeoff ✓
 
+### Milestone 8 Polish (post-commit additions)
+- [x] CS:GO-faithful spray patterns: first 2 shots perfectly straight, AK reverse-J (vertical 8.5°, left sweep -3.2° → right +1.8°), M4 right-drift (vertical 6.0°, drift to +1.8° settling at +0.3°) — pure horizontal/vertical axes only, no diagonals
+- [x] Float shot_index with gradual decay: increments by 1.0 per shot, decays at 15/sec after 0.12s delay (SPRAY_DECAY_DELAY=0.12f, SPRAY_DECAY_RATE=15.0f) — tap-firing feels natural
+- [x] CS:GO reload times: Pistol 2.2s, AK 2.4s, M4 3.1s, AWP 3.7s
+- [x] Movement inaccuracy: sqrt-weighted random cone via atan2/asin angle recovery — inaccuracy_stand/move/air per weapon, CS:GO-approximate values
+- [x] Crouch=Shift, Walk=Ctrl (135 u/s cap), replacing prior crouch-only binds
+- [x] Q quickswitch: swaps to last-used slot
+- [x] Pause menu → Settings → Controls: clickable items, sensitivity slider with < > buttons
+- [x] Source sensitivity formula: `degrees = raw_counts × sensitivity × 0.022` (SOURCE_YAW constant)
+- [x] Shoot during buy phase; all players get max ammo at buy phase start; no ammo-rebuy option
+- [x] Round-end free movement (position trusted server-side during PHASE_END)
+- [x] Testing mode propagated via PktWorld flags bit (bit0=testing) — client reads net.testing; no duplicate --testing arg needed
+- [x] Infinite reserve ammo in testing mode (client refills ammo_reserve every frame)
+- [x] F5 force-ends round (testing mode only): sends PKT_DEBUG, server sets PHASE_END
+- [x] Crosshair visible during buy phase
+- [x] Bullet hole decals: 5.0 → 2.0 units (easier to read shot groupings)
+
 ### Milestone 9 — Bomb Objective
 - [ ] Bomb item: spawns on a T-side player each round
 - [ ] Bomb sites: two marked zones in the map
@@ -213,6 +230,13 @@ Key behavior: in the air you have very little ability to change direction (low a
 | 2026-03-11 | Milestone 6: round system | RoundState in round.c, team assignment on connect, team-aware spawns, death→spectator, win-by-elimination, 1:55 timer, 5s scoreboard, round restart. PktWorld expanded to 210B with phase/round_ticks/scores/win_team. |
 | 2026-03-11 | Milestone 7: economy | economy.h/c: MONEY_START=$800, kill +$300, win +$3250, loss $1400–$3400 streak. PHASE_BUY (15s) before PHASE_LIVE. PKT_BUY for weapon purchases. PktWorld expanded to 231B with uint16 money per PlayerInfo. Buy menu: B key, number keys to buy. |
 | 2026-03-11 | Milestone 8: weapon arsenal | 4 weapons (Pistol/AK/M4/AWP). Deterministic spray patterns: pure vertical then pure horizontal, never overlap — right-angle transition is the learnable skill. PKT_SHOOT (14B) carries ray direction; server uses it directly. PlayerInfo expanded to 25B with weapon/ammo. PktWorld 261B. AWP slow via max_speed in PlayerInput. R to reload, auto-reload on empty. Re-buy = ammo refill. |
+| 2026-03-13 | Spray: float shot_index + gradual decay | Fixed all-straight-bullet bug (SPRAY_RESET_TIME < fire_rate caused pattern to reset between every shot). Replaced with float shot_index decaying at 15/sec after 0.12s delay. Tap-firing now gradually returns to center. |
+| 2026-03-13 | CS:GO spray patterns | AK: reverse-J (2 free, 7-shot vertical rise to 8.5°, left sweep to -3.2° then back to +1.8°). M4: right-drift (2 free, 7-shot rise to 6.0°, drift to +1.8° settling +0.3°). Pure horizontal/vertical axes only. |
+| 2026-03-13 | Movement inaccuracy | sqrt-weighted random cone using atan2/asin angle recovery. Applied after spray offset. Values: Pistol (0.5°/3.0°/6.0°), AK (0.2°/5.0°/10.0°), M4 (0.2°/4.5°/9.0°), AWP (0.0°/8.0°/14.0°). |
+| 2026-03-13 | Source sensitivity | SOURCE_YAW=0.022f constant. Mouse delta × sensitivity × 0.022 = degrees. Matches CS:GO/Source engine sensitivity scale. |
+| 2026-03-13 | Testing mode via PktWorld flags | Server broadcasts flags byte (bit0=testing) in PktWorld. Client reads net.testing — no need to pass --testing to client. Infinite reserve ammo when testing. F5 force-ends round (PKT_DEBUG → server sets PHASE_END). |
+| 2026-03-13 | Buy phase overhaul | Shooting allowed during buy phase. All players get max ammo at buy phase start. Ammo-rebuy option removed (antiquated 1.6 design). |
+| 2026-03-13 | Keybinds: crouch/walk | Crouch=Shift (was Ctrl), Walk=Ctrl (135 u/s cap, new). Q=quickswitch to last slot. |
 
 ---
 

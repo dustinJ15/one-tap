@@ -161,7 +161,7 @@ static void server_apply_shoot(SrvClient *clients, int shooter_id,
 }
 
 static void server_recv_packets(int sock, SrvClient *clients, double now,
-                                const RoundState *round, const Map *map,
+                                RoundState *round, const Map *map,
                                 bool testing)
 {
     uint8_t            buf[512];
@@ -239,8 +239,8 @@ static void server_recv_packets(int sock, SrvClient *clients, double now,
 
             clients[id].last_seen = now;
 
-            /* Always trust position during buy phase and live phase (when alive) */
-            if ((round->phase == PHASE_BUY) ||
+            /* Trust position during buy, live (when alive), and end phase */
+            if ((round->phase == PHASE_BUY) || (round->phase == PHASE_END) ||
                 (round->phase == PHASE_LIVE && !clients[id].dead)) {
                 clients[id].player.position.x = pkt.x;
                 clients[id].player.position.y = pkt.y;
@@ -255,13 +255,13 @@ static void server_recv_packets(int sock, SrvClient *clients, double now,
             int id = pkt.player_id;
             if (id < 0 || id >= MAX_PLAYERS || !clients[id].active) continue;
             if (!addr_eq(&clients[id].addr, &addr)) continue;
-            if (clients[id].dead || round->phase != PHASE_LIVE) continue;
+            if (clients[id].dead || (round->phase != PHASE_LIVE && round->phase != PHASE_BUY)) continue;
             int aslot = clients[id].active_slot < 2 ? clients[id].active_slot : 1;
             if (clients[id].weapon_slot[aslot] == 0xFF) continue;
             if (clients[id].ammo_mag_slot[aslot] <= 0) continue;
 
             clients[id].last_seen = now;
-            clients[id].ammo_mag_slot[aslot]--;
+            if (!testing) clients[id].ammo_mag_slot[aslot]--;
 
             Vector3 dir = { pkt.dx, pkt.dy, pkt.dz };
             server_apply_shoot(clients, id, map, dir);
@@ -304,6 +304,13 @@ static void server_recv_packets(int sock, SrvClient *clients, double now,
             if (!addr_eq(&clients[id].addr, &addr)) continue;
             if (pkt.slot < 3) clients[id].active_slot = pkt.slot;
             clients[id].last_seen = now;
+
+        } else if (type == PKT_DEBUG && n >= (ssize_t)sizeof(PktDebug) && testing) {
+            round->phase    = PHASE_END;
+            round->win_team = 0;  /* no winner — just skip the round */
+            round->end_timer = 3.0f;
+            server_distribute_round_money(clients, round);
+            printf("[server] debug: round force-ended\n");
 
         } else if (type == PKT_DISCONNECT && n >= (ssize_t)sizeof(PktDisconnect)) {
             PktDisconnect pkt;
@@ -355,7 +362,7 @@ static void server_tick(SrvClient *clients, RoundState *round, float dt, bool te
     }
 }
 
-static void server_send_world(int sock, SrvClient *clients, const RoundState *round)
+static void server_send_world(int sock, SrvClient *clients, const RoundState *round, bool testing)
 {
     PktWorld pkt;
     memset(&pkt, 0, sizeof(pkt));
@@ -392,6 +399,7 @@ static void server_send_world(int sock, SrvClient *clients, const RoundState *ro
     pkt.ct_score    = (uint8_t)round->ct_score;
     pkt.t_score     = (uint8_t)round->t_score;
     pkt.win_team    = (uint8_t)round->win_team;
+    pkt.flags       = testing ? 1 : 0;
 
     for (int i = 0; i < MAX_PLAYERS; i++) {
         if (!clients[i].active) continue;
@@ -457,7 +465,7 @@ void server_run(int port, bool testing)
 
         server_recv_packets(sock, clients, now, &round, &map, testing);
         server_tick(clients, &round, SERVER_DT, testing);
-        server_send_world(sock, clients, &round);
+        server_send_world(sock, clients, &round, testing);
 
         for (int i = 0; i < MAX_PLAYERS; i++) {
             if (clients[i].active && (now - clients[i].last_seen) > CLIENT_TIMEOUT) {

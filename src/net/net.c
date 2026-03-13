@@ -103,6 +103,7 @@ void net_client_recv(NetClient *c)
         c->ct_score    = latest.ct_score;
         c->t_score     = latest.t_score;
         c->win_team    = latest.win_team;
+        c->testing     = (latest.flags & 1) != 0;
     }
 }
 
@@ -124,6 +125,13 @@ void net_client_equip(NetClient *c, uint8_t slot)
 {
     if (!c->connected) return;
     PktEquip pkt = { PKT_EQUIP, c->my_id, slot };
+    send(c->sock, &pkt, sizeof(pkt), 0);
+}
+
+void net_client_end_round(NetClient *c)
+{
+    if (!c->connected) return;
+    PktDebug pkt = { PKT_DEBUG, c->my_id, 0 };
     send(c->sock, &pkt, sizeof(pkt), 0);
 }
 

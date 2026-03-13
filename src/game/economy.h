@@ -25,8 +25,11 @@ typedef struct {
     int         damage;
     float       fire_rate;     /* seconds between shots */
     float       reload_time;   /* seconds to reload */
-    float       move_factor;   /* max speed multiplier (1.0 = normal) */
-    bool        semi_auto;     /* true = one shot per click */
+    float       move_factor;      /* max speed multiplier (1.0 = normal) */
+    float       inaccuracy_stand; /* base spread cone half-angle (degrees) when still */
+    float       inaccuracy_move;  /* added spread at full run speed (degrees) */
+    float       inaccuracy_air;   /* added spread while airborne (degrees) */
+    bool        semi_auto;        /* true = one shot per click */
 } WeaponDef;
 
 extern const WeaponDef WEAPONS[WEAPON_COUNT];
