@@ -237,6 +237,7 @@ Key behavior: in the air you have very little ability to change direction (low a
 | 2026-03-13 | Testing mode via PktWorld flags | Server broadcasts flags byte (bit0=testing) in PktWorld. Client reads net.testing — no need to pass --testing to client. Infinite reserve ammo when testing. F5 force-ends round (PKT_DEBUG → server sets PHASE_END). |
 | 2026-03-13 | Buy phase overhaul | Shooting allowed during buy phase. All players get max ammo at buy phase start. Ammo-rebuy option removed (antiquated 1.6 design). |
 | 2026-03-13 | Keybinds: crouch/walk | Crouch=Shift (was Ctrl), Walk=Ctrl (135 u/s cap, new). Q=quickswitch to last slot. |
+| 2026-03-13 | Milestone 9 polish: weapon models + knife tuning | Overhauled all weapon viewmodels with detailed multi-cube pixel-art geometry (~25–35 cubes/weapon), fully opaque (alpha=255). Knife: M1 bell-curve sweep animation (translate+rotate around grip), M2 now identical to M1 but 0.65s vs 0.35s. Knife damage=55 (CS:GO M2 front stab). Buy menu: knife removed, damage column removed. Spray: SPRAY_DECAY_DELAY=0.50s, SPRAY_DECAY_RATE=60/s (snap reset, matches CS:GO tap-fire timing). AK vertical peak 12°, horizontal ±4.5°. M4 vertical peak 9°, horizontal +2.5°. Pure-axis only — deliberate design decision, never change. |
 
 ---
 

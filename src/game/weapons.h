@@ -7,10 +7,12 @@
 #include "economy.h"
 
 /* Delay after last shot before recovery begins.
- * CS:GO weapon_recoil_cooldown = 0.55s — enforces tap-fire discipline. */
-#define SPRAY_DECAY_DELAY  0.45f
-/* Pattern indices recovered per second once decay starts (~2s for full 30-shot reset). */
-#define SPRAY_DECAY_RATE   15.0f
+ * CS:GO weapon_recoil_cooldown = 0.55s — matched here for tap-fire timing. */
+#define SPRAY_DECAY_DELAY  0.50f
+/* Pattern indices recovered per second once decay starts.
+ * High rate (60/s) means the reset snaps back quickly once the cooldown expires,
+ * matching CS:GO's near-instant index reset rather than a slow drift. */
+#define SPRAY_DECAY_RATE   60.0f
 
 /*
  * Spray pattern: cumulative (yaw, pitch) offset in degrees added to the shot

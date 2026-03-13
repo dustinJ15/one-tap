@@ -25,16 +25,18 @@ typedef struct { Vector3 origin; Vector3 endpoint; float born; } Tracer;
 
 /*
  * Draw a blocky gun model in local gun-space.
- * Origin is the grip/handle position in world space.
- * After translation + yaw/pitch rotation, -Z = forward, +X = camera right, +Y = up.
- * Muzzle tip distances (forward from origin along -Z):
- *   Pistol=21  AK=42  M4=37  AWP=52
+ * Origin is the grip/handle position. -Z = forward (muzzle), +Y = up.
+ * Muzzle tip distances: Pistol≈20  AK≈44  M4≈44  AWP≈57
  */
 static void draw_gun(WeaponId wid, Vector3 origin, float yaw, float pitch, const WeaponState *ws)
 {
-    Color gray1 = { 40, 40, 40, 150 };  /* dark */
-    Color gray2 = { 65, 65, 65, 150 };  /* medium */
-    Color gray3 = { 25, 25, 25, 150 };  /* very dark */
+    /* Material palette — desaturated but distinct enough to read materials */
+    Color c_dark    = { 20, 20, 22, 255 };  /* near-black: bores, deep shadow, serrations */
+    Color c_steel   = { 40, 41, 45, 255 };  /* dark steel: slides, barrels, receivers */
+    Color c_metal   = { 60, 62, 67, 255 };  /* gunmetal mid: dust covers, guards */
+    Color c_light   = { 88, 91, 96, 255 };  /* polished highlight: rails, flats, blade face */
+    Color c_polymer = { 28, 29, 32, 255 };  /* matte black polymer: grips, stocks */
+    Color c_wood    = { 66, 44, 20, 255 };  /* walnut: AK handguard, stock */
 
     rlPushMatrix();
     rlTranslatef(origin.x, origin.y, origin.z);
@@ -42,14 +44,16 @@ static void draw_gun(WeaponId wid, Vector3 origin, float yaw, float pitch, const
     /* Melee swiping animation (procedural) */
     if (wid == WEAPON_KNIFE && ws->swing_timer > 0.0f) {
         float t = ws->swing_timer;
-        if (ws->swing_type == 1) { /* Light: horizontal swipe */
-            float swipe = sinf(t * 10.0f) * 40.0f;
-            rlRotatef(swipe, 0, 1, 0);
-            rlTranslatef(swipe * 0.2f, 0, 0);
-        } else { /* Heavy: overhead chop */
-            float chop = sinf(t * 8.0f) * 50.0f;
-            rlRotatef(chop, 1, 0, 0);
-            rlTranslatef(0, -chop * 0.1f, chop * 0.2f);
+        if (ws->swing_type == 1) { /* Light M1: CS-style right-to-left arm sweep */
+            float phase = 1.0f - (t / 0.35f);
+            float bell  = sinf(phase * PI);
+            rlTranslatef(-bell * 20.0f, bell * 3.0f, -bell * 10.0f);
+            rlRotatef(-bell * 12.0f, 0.0f, 0.0f, 1.0f);
+        } else { /* Heavy M2: same sweep as M1 but slower */
+            float phase = 1.0f - (t / 0.65f);
+            float bell  = sinf(phase * PI);
+            rlTranslatef(-bell * 20.0f, bell * 3.0f, -bell * 10.0f);
+            rlRotatef(-bell * 12.0f, 0.0f, 0.0f, 1.0f);
         }
     }
 
@@ -57,79 +61,217 @@ static void draw_gun(WeaponId wid, Vector3 origin, float yaw, float pitch, const
     rlRotatef( pitch, 1.0f, 0.0f, 0.0f);
 
     switch (wid) {
-        case WEAPON_PISTOL: /* Completely NEW Glock-18 silhouette */
-            DrawCubeV((Vector3){ 0, 1.8f, -7.0f }, (Vector3){ 3.8f, 3.2f, 18.0f }, gray1);  /* main slide */
-            DrawCubeV((Vector3){ 0, 3.4f, -7.0f }, (Vector3){ 3.2f, 1.0f, 17.5f }, gray2);  /* slide top taper */
-            DrawCubeV((Vector3){ 0, -6.5f, 1.5f }, (Vector3){ 3.8f, 12.0f, 5.5f }, gray1);  /* ergonomic tilted grip */
-            DrawCubeV((Vector3){ 0, -0.5f, -1.0f }, (Vector3){ 3.8f, 3.5f, 10.0f }, gray1); /* frame back */
-            DrawCubeV((Vector3){ 0, 0.0f, -6.5f }, (Vector3){ 3.2f, 1.5f, 9.0f }, gray1);   /* trigger guard box */
-            DrawCubeV((Vector3){ 0, 4.0f, -15.5f }, (Vector3){ 0.8f, 1.2f, 1.2f }, gray3);  /* front sight dot */
-            DrawCubeV((Vector3){ 0, 4.0f, 1.5f }, (Vector3){ 1.5f, 1.2f, 1.0f }, gray3);    /* rear sight notch */
+
+        /* ============================================================
+         * PISTOL — Glock 18
+         * Slide runs from Z≈+5 (rear) to Z≈-16 (front).
+         * Grip drops from Y≈0 down to Y≈-14.
+         * ============================================================ */
+        case WEAPON_PISTOL:
+            /* Slide — main steel upper */
+            DrawCubeV((Vector3){ 0,  2.6f, -6.5f}, (Vector3){3.0f, 3.8f, 14.0f}, c_steel);  /* slide body */
+            DrawCubeV((Vector3){ 0,  2.6f,-14.5f}, (Vector3){2.7f, 3.5f,  4.0f}, c_steel);  /* slide nose (tapers) */
+            DrawCubeV((Vector3){ 0,  2.6f,  3.5f}, (Vector3){3.2f, 3.8f,  3.5f}, c_steel);  /* slide rear / serration block */
+            DrawCubeV((Vector3){ 0,  2.6f,  3.5f}, (Vector3){1.6f, 4.0f,  3.8f}, c_dark);   /* rear serration cuts */
+            DrawCubeV((Vector3){ 0,  4.3f, -6.5f}, (Vector3){2.0f, 0.6f, 16.0f}, c_light);  /* slide top flat */
+            DrawCubeV((Vector3){ 0,  2.6f, -2.5f}, (Vector3){2.2f, 2.2f,  6.5f}, c_dark);   /* ejection port cutout */
+            /* Sights */
+            DrawCubeV((Vector3){ 0,  5.0f,-13.5f}, (Vector3){0.9f, 1.4f,  1.3f}, c_dark);   /* front sight blade */
+            DrawCubeV((Vector3){ 0,  5.1f,-13.5f}, (Vector3){0.3f, 0.5f,  0.3f}, (Color){200,200,200,255}); /* front sight dot */
+            DrawCubeV((Vector3){ 0,  5.0f,  2.8f}, (Vector3){2.2f, 1.4f,  1.0f}, c_dark);   /* rear sight */
+            /* Frame — polymer lower */
+            DrawCubeV((Vector3){ 0,  0.7f, -5.0f}, (Vector3){3.2f, 2.5f,  8.5f}, c_metal);  /* frame body */
+            DrawCubeV((Vector3){ 0,  0.7f,-11.5f}, (Vector3){3.0f, 2.2f,  3.5f}, c_metal);  /* frame nose */
+            DrawCubeV((Vector3){ 0,  0.2f, -9.8f}, (Vector3){2.5f, 1.0f,  2.2f}, c_dark);   /* accessory rail */
+            DrawCubeV((Vector3){ 0, -1.0f, -8.5f}, (Vector3){3.2f, 1.8f,  1.2f}, c_metal);  /* trigger guard front bar */
+            DrawCubeV((Vector3){ 0, -1.0f, -1.0f}, (Vector3){3.2f, 1.8f,  7.5f}, c_metal);  /* trigger guard sweep */
+            DrawCubeV((Vector3){ 0, -2.3f, -4.5f}, (Vector3){1.5f, 1.0f,  2.2f}, c_dark);   /* trigger blade */
+            /* Grip */
+            DrawCubeV((Vector3){ 0, -7.5f,  1.8f}, (Vector3){3.0f,11.5f,  5.5f}, c_polymer);/* grip body */
+            DrawCubeV((Vector3){ 0,-13.5f,  1.8f}, (Vector3){3.4f, 2.0f,  5.0f}, c_dark);   /* magazine baseplate */
+            DrawCubeV((Vector3){ 0, -7.5f, -1.2f}, (Vector3){2.6f, 9.5f,  0.6f}, c_dark);   /* front strap */
+            DrawCubeV((Vector3){ 0, -7.5f,  4.7f}, (Vector3){2.6f, 9.5f,  0.6f}, c_dark);   /* backstrap */
+            DrawCubeV((Vector3){ 0, -7.5f,  1.8f}, (Vector3){0.4f,11.5f,  5.7f}, c_dark);   /* grip side panel line */
+            /* Barrel stub visible at muzzle */
+            DrawCubeV((Vector3){ 0,  2.6f,-18.5f}, (Vector3){1.1f, 1.1f,  3.5f}, c_dark);   /* barrel crown */
             break;
 
-        case WEAPON_AK: /* Completely NEW AK-47 Build (Scrapped old one) */
-            /* Barrel & Gas */
-            DrawCubeV((Vector3){ 0, 0.8f, -22.0f }, (Vector3){ 1.2f, 1.2f, 44.0f }, gray3); /* thin long barrel */
-            DrawCubeV((Vector3){ 0, 2.5f, -18.0f }, (Vector3){ 1.0f, 1.0f, 36.0f }, gray1); /* parallel gas tube */
-            DrawCubeV((Vector3){ 0, 1.8f, -32.0f }, (Vector3){ 1.5f, 3.5f, 2.5f }, gray3);  /* gas block hump */
-            DrawCubeV((Vector3){ 0, 0.8f, -44.0f }, (Vector3){ 1.8f, 1.8f, 2.5f }, gray3);  /* slant compensator */
-            DrawCubeV((Vector3){ 0, 3.2f, -42.0f }, (Vector3){ 0.5f, 3.0f, 1.2f }, gray3);  /* front sight post */
+        /* ============================================================
+         * AK-47
+         * Barrel tip ≈ Z=-44. Stock rear ≈ Z=+24.
+         * Most recognisable: curved mag, wood furniture, gas tube.
+         * ============================================================ */
+        case WEAPON_AK:
+            /* Muzzle device */
+            DrawCubeV((Vector3){ 0,  0.8f,-42.5f}, (Vector3){2.2f, 2.2f,  4.0f}, c_dark);   /* slant compensator */
+            DrawCubeV((Vector3){ 0,  0.8f,-44.0f}, (Vector3){0.9f, 0.9f,  1.5f}, c_dark);   /* bore */
+            /* Barrel */
+            DrawCubeV((Vector3){ 0,  0.8f,-23.0f}, (Vector3){1.5f, 1.5f, 42.0f}, c_steel);  /* barrel */
+            DrawCubeV((Vector3){ 0,  0.8f,-23.0f}, (Vector3){0.7f, 0.7f, 42.5f}, c_dark);   /* bore channel */
+            /* Gas system */
+            DrawCubeV((Vector3){ 0,  3.2f,-17.0f}, (Vector3){1.2f, 1.2f, 30.0f}, c_steel);  /* gas tube */
+            DrawCubeV((Vector3){ 0,  2.0f,-31.0f}, (Vector3){2.0f, 4.5f,  3.0f}, c_dark);   /* gas block */
+            DrawCubeV((Vector3){ 0,  3.2f,-13.5f}, (Vector3){1.8f, 2.5f,  2.0f}, c_dark);   /* gas tube bracket */
+            /* Front sight tower — very recognisable AK feature */
+            DrawCubeV((Vector3){ 0,  0.8f,-40.0f}, (Vector3){3.0f, 1.5f,  2.5f}, c_dark);   /* sight base */
+            DrawCubeV((Vector3){ 0,  4.2f,-40.0f}, (Vector3){0.7f, 5.5f,  1.0f}, c_dark);   /* sight post */
+            DrawCubeV((Vector3){ 0,  6.5f,-40.0f}, (Vector3){2.5f, 1.5f,  1.8f}, c_dark);   /* sight hood */
             /* Receiver */
-            DrawCubeV((Vector3){ 0, 0.0f, -2.0f }, (Vector3){ 4.5f, 5.5f, 24.0f }, gray1);  /* stamped lower receiver */
-            DrawCubeV((Vector3){ 0, 3.5f, -2.0f }, (Vector3){ 3.2f, 2.5f, 24.0f }, gray2);  /* rounded dust cover */
-            /* Woodwork */
-            DrawCubeV((Vector3){ 0, -0.5f, -12.0f }, (Vector3){ 4.2f, 4.2f, 12.0f }, gray2); /* lower handguard chunky */
-            DrawCubeV((Vector3){ 0, 2.5f, -12.0f }, (Vector3){ 3.5f, 2.0f, 11.0f }, gray2);  /* upper handguard rounded */
-            DrawCubeV((Vector3){ 0, -1.0f, 14.0f }, (Vector3){ 3.8f, 5.0f, 18.0f }, gray2);  /* classic straight wood stock */
-            /* Ergonomics */
-            DrawCubeV((Vector3){ 0, -8.5f, 1.5f }, (Vector3){ 3.2f, 11.0f, 4.8f }, gray1);  /* bakelite-style grip */
-            DrawCubeV((Vector3){ 0, -11.0f, -7.0f }, (Vector3){ 2.8f, 12.0f, 4.0f }, gray3); /* banana mag top */
-            DrawCubeV((Vector3){ 0, -15.0f, -11.0f }, (Vector3){ 2.8f, 9.0f, 4.0f }, gray3);  /* banana mag bend */
-            DrawCubeV((Vector3){ 0, 1.5f, 3.0f }, (Vector3){ 6.0f, 1.0f, 1.5f }, gray1);    /* bolt carrier handle */
+            DrawCubeV((Vector3){ 0,  0.0f, -2.5f}, (Vector3){4.8f, 5.8f, 25.0f}, c_steel);  /* lower receiver */
+            DrawCubeV((Vector3){ 0,  3.8f, -2.5f}, (Vector3){3.6f, 2.5f, 25.0f}, c_metal);  /* dust cover (rounds over top) */
+            DrawCubeV((Vector3){ 0,  0.5f, -3.0f}, (Vector3){2.8f, 4.5f,  7.0f}, c_dark);   /* ejection port */
+            DrawCubeV((Vector3){ 0,  2.2f,  3.5f}, (Vector3){6.2f, 1.5f,  2.5f}, c_steel);  /* bolt carrier handle */
+            DrawCubeV((Vector3){ 0,  2.2f,  3.5f}, (Vector3){5.0f, 1.2f,  2.0f}, c_dark);   /* handle shadow groove */
+            DrawCubeV((Vector3){ 0,  0.0f,-14.5f}, (Vector3){4.8f, 0.8f,  2.0f}, c_dark);   /* receiver step / handguard cap */
+            /* Handguard — wood */
+            DrawCubeV((Vector3){ 0, -0.5f,-12.5f}, (Vector3){4.5f, 4.5f, 12.0f}, c_wood);   /* lower handguard */
+            DrawCubeV((Vector3){ 0,  2.8f,-12.5f}, (Vector3){3.8f, 2.2f, 11.0f}, c_wood);   /* upper handguard */
+            DrawCubeV((Vector3){ 0,  2.8f,-12.5f}, (Vector3){3.2f, 0.6f, 11.5f}, c_dark);   /* upper handguard groove */
+            /* Grip — bakelite */
+            DrawCubeV((Vector3){ 0, -8.5f,  1.5f}, (Vector3){3.5f,12.0f,  5.2f}, c_polymer);/* grip */
+            DrawCubeV((Vector3){ 0,-14.2f,  1.5f}, (Vector3){3.0f, 2.0f,  4.8f}, c_dark);   /* grip cap */
+            DrawCubeV((Vector3){ 0, -8.5f, -1.4f}, (Vector3){2.8f,10.0f,  0.7f}, c_dark);   /* grip front strap */
+            /* Banana magazine — the most iconic AK feature */
+            DrawCubeV((Vector3){ 0,-10.5f, -7.0f}, (Vector3){3.2f,13.0f,  4.8f}, c_dark);   /* mag straight section */
+            DrawCubeV((Vector3){ 0,-17.0f,-11.0f}, (Vector3){3.2f, 7.5f,  4.8f}, c_dark);   /* mag curve */
+            DrawCubeV((Vector3){ 0,-22.5f,-13.5f}, (Vector3){3.2f, 4.0f,  4.5f}, c_dark);   /* mag tip */
+            DrawCubeV((Vector3){ 0,-10.5f, -7.0f}, (Vector3){1.6f,13.5f,  3.5f}, c_metal);  /* mag body highlight */
+            DrawCubeV((Vector3){ 0,-24.5f,-13.5f}, (Vector3){3.4f, 2.0f,  4.2f}, c_metal);  /* mag baseplate */
+            /* Stock — straight wood */
+            DrawCubeV((Vector3){ 0, -0.5f, 14.5f}, (Vector3){4.2f, 5.5f, 18.0f}, c_wood);   /* stock body */
+            DrawCubeV((Vector3){ 0,  2.3f, 14.5f}, (Vector3){3.8f, 1.2f, 17.5f}, c_dark);   /* stock top groove */
+            DrawCubeV((Vector3){ 0, -0.5f, 24.0f}, (Vector3){4.4f, 6.5f,  2.5f}, c_dark);   /* butt plate */
             break;
 
-        case WEAPON_M4: /* High-fidelity M4A1 */
-            DrawCubeV((Vector3){ 0, 0.5f, -20.0f }, (Vector3){ 1.6f, 1.6f, 40.0f }, gray1); /* barrel */
-            DrawCubeV((Vector3){ 0, 0.5f, -40.0f }, (Vector3){ 2.5f, 2.5f, 4.0f }, gray3);  /* flash hider */
-            DrawCubeV((Vector3){ 0, 0.5f, -2.0f }, (Vector3){ 4.0f, 6.0f, 22.0f }, gray1);  /* receiver */
-            DrawCubeV((Vector3){ 0, 0.5f, -14.0f }, (Vector3){ 3.8f, 4.2f, 14.0f }, gray1); /* ribbed handguard */
-            DrawCubeV((Vector3){ 0, 0.5f, 12.0f }, (Vector3){ 3.5f, 3.5f, 14.0f }, gray1);  /* buffer tube/stock */
-            DrawCubeV((Vector3){ 0, 0.5f, 18.0f }, (Vector3){ 4.0f, 5.0f, 6.0f }, gray2);   /* buttstock */
-            DrawCubeV((Vector3){ 0, -8.0f, 0.0f }, (Vector3){ 3.0f, 11.0f, 4.5f }, gray1);  /* grip */
-            DrawCubeV((Vector3){ 0, -7.0f, -5.0f }, (Vector3){ 2.5f, 12.0f, 5.0f }, gray2); /* mag */
-            DrawCubeV((Vector3){ 0, 4.5f, -2.0f }, (Vector3){ 1.2f, 2.5f, 18.0f }, gray1);  /* carry handle */
-            DrawCubeV((Vector3){ 0, 3.5f, -30.0f }, (Vector3){ 0.8f, 5.0f, 2.0f }, gray3);  /* triangular front sight */
+        /* ============================================================
+         * M4A1-S  (suppressed)
+         * Suppressor tip ≈ Z=-44. Stock ≈ Z=+26.
+         * Key reads: fat suppressor, flat-top rail, collapsible stock.
+         * ============================================================ */
+        case WEAPON_M4:
+            /* Suppressor — large, defines the silhouette */
+            DrawCubeV((Vector3){ 0,  0.5f,-36.5f}, (Vector3){3.2f, 3.2f, 12.0f}, c_steel);  /* suppressor body */
+            DrawCubeV((Vector3){ 0,  0.5f,-43.5f}, (Vector3){2.8f, 2.8f,  3.0f}, c_steel);  /* suppressor end cap */
+            DrawCubeV((Vector3){ 0,  0.5f,-44.5f}, (Vector3){1.0f, 1.0f,  1.0f}, c_dark);   /* bore */
+            DrawCubeV((Vector3){ 0,  0.5f,-33.5f}, (Vector3){3.8f, 3.8f,  2.5f}, c_metal);  /* suppressor mount collar */
+            DrawCubeV((Vector3){ 0,  0.5f,-36.5f}, (Vector3){3.4f, 0.7f, 12.5f}, c_dark);   /* suppressor seam line */
+            DrawCubeV((Vector3){ 0,  0.5f,-36.5f}, (Vector3){0.7f, 3.4f, 12.5f}, c_dark);   /* suppressor side seam */
+            /* Barrel (hidden inside suppressor, stub visible) */
+            DrawCubeV((Vector3){ 0,  0.5f,-22.0f}, (Vector3){1.7f, 1.7f, 20.0f}, c_steel);  /* barrel */
+            DrawCubeV((Vector3){ 0,  0.5f,-22.0f}, (Vector3){0.8f, 0.8f, 20.5f}, c_dark);   /* bore */
+            /* Upper receiver */
+            DrawCubeV((Vector3){ 0,  0.5f, -2.0f}, (Vector3){4.4f, 6.4f, 22.0f}, c_steel);  /* upper receiver */
+            DrawCubeV((Vector3){ 0,  3.8f, -2.0f}, (Vector3){3.6f, 1.2f, 22.0f}, c_light);  /* flat-top Picatinny rail */
+            DrawCubeV((Vector3){ 0,  4.5f,  1.5f}, (Vector3){3.0f, 0.8f,  3.0f}, c_dark);   /* rail slot 1 */
+            DrawCubeV((Vector3){ 0,  4.5f, -3.5f}, (Vector3){3.0f, 0.8f,  3.0f}, c_dark);   /* rail slot 2 */
+            DrawCubeV((Vector3){ 0,  4.5f, -8.5f}, (Vector3){3.0f, 0.8f,  3.0f}, c_dark);   /* rail slot 3 */
+            DrawCubeV((Vector3){ 0,  2.0f,  5.0f}, (Vector3){4.0f, 1.8f,  2.5f}, c_metal);  /* charging handle */
+            DrawCubeV((Vector3){ 0,  0.5f, -4.0f}, (Vector3){2.5f, 4.5f,  4.5f}, c_dark);   /* ejection port */
+            DrawCubeV((Vector3){ 0,  0.5f,-10.5f}, (Vector3){4.0f, 1.2f,  1.8f}, c_metal);  /* forward assist */
+            /* Lower receiver */
+            DrawCubeV((Vector3){ 0, -2.0f, -1.0f}, (Vector3){4.4f, 3.5f, 17.0f}, c_metal);  /* lower receiver */
+            DrawCubeV((Vector3){ 0, -2.8f, -6.5f}, (Vector3){3.5f, 1.5f,  1.5f}, c_dark);   /* trigger guard front */
+            DrawCubeV((Vector3){ 0, -2.8f,  4.0f}, (Vector3){3.5f, 1.5f,  4.0f}, c_dark);   /* trigger guard rear */
+            DrawCubeV((Vector3){ 0, -3.8f, -1.5f}, (Vector3){1.8f, 1.3f,  2.8f}, c_dark);   /* trigger */
+            /* M-LOK handguard */
+            DrawCubeV((Vector3){ 0,  0.5f,-17.0f}, (Vector3){4.8f, 5.2f, 13.0f}, c_steel);  /* handguard body */
+            DrawCubeV((Vector3){ 0,  3.0f,-17.0f}, (Vector3){4.0f, 0.8f, 13.5f}, c_dark);   /* M-LOK top slot */
+            DrawCubeV((Vector3){ 0, -2.0f,-17.0f}, (Vector3){4.0f, 0.8f, 12.5f}, c_dark);   /* M-LOK bottom slot */
+            DrawCubeV((Vector3){ 0,  0.5f,-22.5f}, (Vector3){5.0f, 5.8f,  2.5f}, c_dark);   /* handguard-barrel junction */
+            /* Grip */
+            DrawCubeV((Vector3){ 0, -8.5f,  0.0f}, (Vector3){3.4f,12.0f,  5.0f}, c_polymer);/* grip */
+            DrawCubeV((Vector3){ 0,-14.2f,  0.0f}, (Vector3){3.0f, 2.0f,  4.8f}, c_dark);   /* grip cap */
+            DrawCubeV((Vector3){ 0, -8.5f, -2.5f}, (Vector3){2.8f,10.0f,  0.7f}, c_dark);   /* grip front strap */
+            /* Magazine — straight STANAG */
+            DrawCubeV((Vector3){ 0, -8.5f, -5.5f}, (Vector3){3.0f,12.0f,  5.0f}, c_dark);   /* mag body */
+            DrawCubeV((Vector3){ 0,-14.0f, -5.5f}, (Vector3){3.2f, 2.5f,  4.8f}, c_metal);  /* mag baseplate */
+            DrawCubeV((Vector3){ 0, -8.5f, -5.5f}, (Vector3){1.5f,12.5f,  3.5f}, c_metal);  /* mag side highlight */
+            /* Collapsible stock */
+            DrawCubeV((Vector3){ 0,  0.5f, 13.5f}, (Vector3){3.8f, 3.8f, 14.0f}, c_steel);  /* buffer tube */
+            DrawCubeV((Vector3){ 0,  0.5f, 13.5f}, (Vector3){4.5f, 0.8f, 14.5f}, c_dark);   /* tube seam */
+            DrawCubeV((Vector3){ 0,  0.5f, 21.0f}, (Vector3){5.0f, 6.5f,  8.5f}, c_polymer);/* stock body */
+            DrawCubeV((Vector3){ 0,  3.8f, 24.0f}, (Vector3){4.5f, 2.5f,  5.0f}, c_dark);   /* cheek weld */
+            DrawCubeV((Vector3){ 0, -1.5f, 25.0f}, (Vector3){4.5f, 2.0f,  3.0f}, c_dark);   /* stock toe */
+            DrawCubeV((Vector3){ 0,  0.5f, 26.0f}, (Vector3){5.2f, 7.5f,  2.5f}, c_dark);   /* butt pad */
             break;
 
-        case WEAPON_AWP: { /* High-fidelity AWP */
-            /* Heavy Barrel */
-            DrawCubeV((Vector3){ 0, 0.5f, -28.0f }, (Vector3){ 2.4f, 2.4f, 52.0f }, gray1);
-            DrawCubeV((Vector3){ 0, 0.5f, -54.0f }, (Vector3){ 3.2f, 3.2f, 6.0f }, gray3); /* muzzle brake */
-            /* Stock / Body */
-            DrawCubeV((Vector3){ 0, 1.0f, -2.0f }, (Vector3){ 5.0f, 6.0f, 24.0f }, gray2); /* receiver area */
-            DrawCubeV((Vector3){ 0, 1.0f, 14.0f }, (Vector3){ 4.5f, 6.0f, 20.0f }, gray2); /* main stock body */
-            DrawCubeV((Vector3){ 0, 1.0f, 24.0f }, (Vector3){ 3.5f, 5.5f, 12.0f }, gray2); /* rear stock */
-            DrawCubeV((Vector3){ 0, 4.5f, 22.0f }, (Vector3){ 4.0f, 2.5f, 8.0f }, gray1);  /* cheek rest */
-            /* Grip and Thumbhole */
-            DrawCubeV((Vector3){ 0, -8.0f, 1.5f }, (Vector3){ 3.5f, 12.0f, 5.0f }, gray2); /* grip */
-            DrawCubeV((Vector3){ 0, -1.0f, 14.0f }, (Vector3){ 3.0f, 2.5f, 8.0f }, gray3); /* thumbhole cutout */
-            /* Scope */
-            DrawCubeV((Vector3){ 0, 5.5f, -4.0f }, (Vector3){ 3.0f, 1.5f, 20.0f }, gray1); /* base rail */
-            DrawCubeV((Vector3){ 0, 8.5f, -2.0f }, (Vector3){ 3.2f, 3.2f, 24.0f }, gray3); /* scope tube */
-            DrawCubeV((Vector3){ 0, 8.5f, -14.0f }, (Vector3){ 4.8f, 4.8f, 6.0f }, gray3); /* objective */
-            DrawCubeV((Vector3){ 0, 8.5f, 10.0f }, (Vector3){ 4.2f, 4.2f, 6.0f }, gray3);  /* eyepiece */
-            DrawCubeV((Vector3){ 0, -5.5f, -4.0f }, (Vector3){ 3.0f, 6.0f, 4.5f }, gray1); /* mag */
+        /* ============================================================
+         * AWP — Arctic Warfare Police
+         * Barrel+brake tip ≈ Z=-57. Stock ≈ Z=+27.
+         * Key reads: massive scope, heavy barrel, thumbhole stock.
+         * ============================================================ */
+        case WEAPON_AWP: {
+            /* Muzzle brake */
+            DrawCubeV((Vector3){ 0,  0.5f,-53.5f}, (Vector3){4.0f, 4.0f,  7.0f}, c_dark);   /* brake body */
+            DrawCubeV((Vector3){ 0,  0.5f,-53.5f}, (Vector3){1.4f, 1.4f,  8.0f}, c_dark);   /* bore */
+            DrawCubeV((Vector3){ 0,  2.4f,-53.5f}, (Vector3){3.4f, 1.2f,  7.5f}, c_metal);  /* top port */
+            DrawCubeV((Vector3){ 0, -1.4f,-53.5f}, (Vector3){3.4f, 1.2f,  7.5f}, c_metal);  /* bottom port */
+            /* Heavy barrel */
+            DrawCubeV((Vector3){ 0,  0.5f,-28.5f}, (Vector3){3.0f, 3.0f, 48.0f}, c_steel);  /* barrel body */
+            DrawCubeV((Vector3){ 0,  0.5f,-28.5f}, (Vector3){1.2f, 1.2f, 49.0f}, c_dark);   /* bore channel */
+            DrawCubeV((Vector3){ 0,  0.5f,-28.5f}, (Vector3){3.2f, 0.7f, 46.0f}, c_light);  /* barrel top flat */
+            /* Action */
+            DrawCubeV((Vector3){ 0,  1.0f, -2.0f}, (Vector3){5.5f, 6.5f, 24.0f}, c_steel);  /* action body */
+            DrawCubeV((Vector3){ 0,  4.5f, -2.0f}, (Vector3){4.2f, 1.5f, 24.0f}, c_metal);  /* action top */
+            DrawCubeV((Vector3){ 0,  1.0f, -8.0f}, (Vector3){3.5f, 4.5f,  5.5f}, c_dark);   /* ejection port */
+            DrawCubeV((Vector3){ 0,  3.5f,  5.0f}, (Vector3){8.0f, 2.5f,  3.5f}, c_steel);  /* bolt handle shaft */
+            DrawCubeV((Vector3){ 0,  3.5f,  5.0f}, (Vector3){9.5f, 3.0f,  2.2f}, c_metal);  /* bolt knob */
+            /* Scope rail */
+            DrawCubeV((Vector3){ 0,  6.5f, -3.0f}, (Vector3){3.5f, 1.5f, 22.0f}, c_metal);  /* rail base */
+            DrawCubeV((Vector3){ 0,  7.2f,  1.5f}, (Vector3){3.0f, 0.8f,  3.5f}, c_dark);   /* rail slot 1 */
+            DrawCubeV((Vector3){ 0,  7.2f, -5.0f}, (Vector3){3.0f, 0.8f,  3.5f}, c_dark);   /* rail slot 2 */
+            /* Scope — the defining AWP feature */
+            DrawCubeV((Vector3){ 0, 10.5f, -0.5f}, (Vector3){3.8f, 3.8f, 26.0f}, c_dark);   /* scope main tube */
+            DrawCubeV((Vector3){ 0, 10.5f,-14.5f}, (Vector3){6.0f, 6.0f,  7.5f}, c_dark);   /* objective bell */
+            DrawCubeV((Vector3){ 0, 10.5f, 12.5f}, (Vector3){5.2f, 5.2f,  7.0f}, c_dark);   /* eyepiece bell */
+            DrawCubeV((Vector3){ 0, 14.0f,  1.5f}, (Vector3){3.0f, 3.5f,  3.5f}, c_metal);  /* elevation turret */
+            DrawCubeV((Vector3){ 0, 10.5f, -4.5f}, (Vector3){6.0f, 2.5f,  3.5f}, c_metal);  /* windage turret */
+            DrawCubeV((Vector3){ 0, 10.5f, -1.0f}, (Vector3){4.2f, 4.2f,  2.8f}, c_metal);  /* scope ring front */
+            DrawCubeV((Vector3){ 0, 10.5f,  7.0f}, (Vector3){4.2f, 4.2f,  2.8f}, c_metal);  /* scope ring rear */
+            /* Stock — thumbhole polymer */
+            DrawCubeV((Vector3){ 0,  1.0f, 14.0f}, (Vector3){5.2f, 7.0f, 22.0f}, c_polymer);/* stock main */
+            DrawCubeV((Vector3){ 0,  5.2f, 22.5f}, (Vector3){4.8f, 3.5f,  9.0f}, c_dark);   /* cheek piece */
+            DrawCubeV((Vector3){ 0, -1.5f, 15.0f}, (Vector3){3.8f, 3.5f, 10.0f}, c_dark);   /* thumbhole cutout */
+            DrawCubeV((Vector3){ 0,  1.0f, 26.5f}, (Vector3){5.8f, 8.5f,  2.5f}, c_dark);   /* butt plate */
+            /* Grip */
+            DrawCubeV((Vector3){ 0, -8.5f,  1.5f}, (Vector3){4.0f,12.5f,  5.5f}, c_polymer);/* grip */
+            DrawCubeV((Vector3){ 0,-14.5f,  1.5f}, (Vector3){3.8f, 2.0f,  5.2f}, c_dark);   /* grip cap */
+            DrawCubeV((Vector3){ 0, -8.5f, -1.8f}, (Vector3){3.2f,10.5f,  0.8f}, c_dark);   /* grip front strap */
+            /* Box magazine */
+            DrawCubeV((Vector3){ 0, -5.5f, -5.5f}, (Vector3){3.4f, 8.5f,  5.2f}, c_dark);   /* mag body */
+            DrawCubeV((Vector3){ 0,-10.0f, -5.5f}, (Vector3){3.4f, 2.5f,  5.0f}, c_metal);  /* mag baseplate */
+            DrawCubeV((Vector3){ 0, -5.5f, -5.5f}, (Vector3){1.8f, 8.5f,  3.5f}, c_metal);  /* mag highlight */
             break;
         }
 
-        case WEAPON_KNIFE: { /* CS 1.6 Knife Pose (Pointed UP and IN toward screen) */
+        /* ============================================================
+         * KNIFE — CS default knife style
+         * Posed: blade pointing up and in, handle lower-right.
+         * ============================================================ */
+        case WEAPON_KNIFE: {
             rlRotatef(25.0f, 0.0f, 0.0f, 1.0f);  /* slant toward center */
             rlRotatef(45.0f, 1.0f, 0.0f, 0.0f);  /* point UP */
-            DrawCubeV((Vector3){ 0, 0.0f, 6.0f }, (Vector3){ 2.8f, 3.2f, 12.0f }, gray1);  /* handle */
-            DrawCubeV((Vector3){ 0, 0.0f, 0.5f }, (Vector3){ 5.0f, 4.5f, 1.5f }, gray3);   /* guard */
-            DrawCubeV((Vector3){ 0, 0.0f, -8.0f }, (Vector3){ 0.8f, 3.5f, 16.0f }, gray2);  /* blade spine */
-            DrawCubeV((Vector3){ 0, -1.2f, -8.5f }, (Vector3){ 0.5f, 1.5f, 15.0f }, gray3); /* blade edge */
-            DrawCubeV((Vector3){ 0, 0.0f, -16.0f }, (Vector3){ 0.7f, 2.0f, 4.0f }, gray2);  /* blade tip */
+            /* Handle */
+            DrawCubeV((Vector3){ 0,  0.0f,  6.5f}, (Vector3){2.8f, 3.5f, 12.0f}, c_polymer);/* handle body */
+            DrawCubeV((Vector3){ 0,  0.0f,  6.5f}, (Vector3){0.5f, 3.7f, 12.5f}, c_metal);  /* spine strip */
+            DrawCubeV((Vector3){ 0,  0.0f,  6.5f}, (Vector3){2.9f, 0.6f, 11.5f}, c_dark);   /* bottom groove */
+            DrawCubeV((Vector3){ 0,  0.0f,  6.5f}, (Vector3){0.4f, 3.5f,  2.0f}, c_dark);   /* grip checkering slot 1 */
+            DrawCubeV((Vector3){ 0,  0.0f,  9.5f}, (Vector3){0.4f, 3.5f,  2.0f}, c_dark);   /* grip checkering slot 2 */
+            DrawCubeV((Vector3){ 0,  0.0f, 12.2f}, (Vector3){3.2f, 4.0f,  2.5f}, c_metal);  /* pommel */
+            DrawCubeV((Vector3){ 0,  0.0f, 13.5f}, (Vector3){3.6f, 4.5f,  1.5f}, c_dark);   /* pommel cap */
+            /* Guard */
+            DrawCubeV((Vector3){ 0,  0.0f,  0.5f}, (Vector3){5.8f, 5.2f,  2.0f}, c_steel);  /* guard main */
+            DrawCubeV((Vector3){ 0,  0.0f,  0.5f}, (Vector3){6.2f, 1.8f,  2.2f}, c_dark);   /* guard lower quillon */
+            DrawCubeV((Vector3){ 0,  0.0f,  0.5f}, (Vector3){1.0f, 5.8f,  2.2f}, c_dark);   /* guard spine */
+            /* Ricasso (unsharpened section near guard) */
+            DrawCubeV((Vector3){ 0,  0.0f, -3.0f}, (Vector3){1.0f, 4.2f,  6.0f}, c_steel);  /* ricasso */
+            DrawCubeV((Vector3){ 0, -0.8f, -3.0f}, (Vector3){0.6f, 2.8f,  6.2f}, c_light);  /* ricasso bevel highlight */
+            /* Blade */
+            DrawCubeV((Vector3){ 0,  0.3f,-10.0f}, (Vector3){0.9f, 3.8f, 13.0f}, c_steel);  /* blade spine */
+            DrawCubeV((Vector3){ 0, -0.3f,-10.0f}, (Vector3){0.6f, 2.8f, 12.5f}, c_light);  /* blade face (bright) */
+            DrawCubeV((Vector3){ 0, -1.5f,-10.5f}, (Vector3){0.5f, 1.2f, 11.5f}, c_dark);   /* blade edge bevel */
+            DrawCubeV((Vector3){ 0,  0.8f,-15.5f}, (Vector3){0.7f, 2.2f,  5.0f}, c_steel);  /* false edge near tip */
+            DrawCubeV((Vector3){ 0,  0.0f,-18.0f}, (Vector3){0.8f, 2.5f,  4.5f}, c_light);  /* blade tip */
             break;
         }
 
@@ -201,6 +343,7 @@ int main(int argc, char **argv)
     Vector3 gun_cam_up     = { 0, 1,  0 };
     float   gun_dev_yaw    = 0.0f;
     float   gun_dev_pitch  = 0.0f;
+
     uint8_t prev_shot_seq[MAX_PLAYERS];
     memset(prev_shot_seq, 0, sizeof(prev_shot_seq));
     bool    buy_menu_open  = false;
@@ -791,7 +934,7 @@ int main(int argc, char **argv)
                 int my_money = net.connected ? (int)net.remote[net.my_id].money : 0;
                 uint8_t cur_weapon = net.connected ? net.remote[net.my_id].weapon
                                                    : active_ws->weapon_id;
-                int bw = 380, bh = 70 + WEAPON_COUNT * 36 + 28;
+                int bw = 340, bh = 70 + (WEAPON_COUNT - 1) * 36 + 28;
                 int bx = cx - bw / 2, by = cy - bh / 2;
                 DrawRectangle(bx, by, bw, bh, (Color){ 0, 0, 0, 220 });
                 DrawRectangleLines(bx, by, bw, bh, GRAY);
@@ -799,7 +942,7 @@ int main(int argc, char **argv)
                 DrawText("BUY MENU", bx + 12, by + 12, 22, YELLOW);
                 DrawText(TextFormat("Money: $%d", my_money), bx + 12, by + 36, 18, GREEN);
 
-                for (int i = 0; i < WEAPON_COUNT; i++) {
+                for (int i = 0; i < WEAPON_COUNT - 1; i++) {  /* skip knife */
                     int wy = by + 68 + i * 36;
                     bool owned = (cur_weapon == (uint8_t)i);
                     bool affordable = !owned && (my_money >= WEAPONS[i].price);
@@ -809,7 +952,7 @@ int main(int argc, char **argv)
                                        : (WEAPONS[i].price == 0 ? "FREE"
                                           : TextFormat("$%d", WEAPONS[i].price));
 
-                    DrawText(TextFormat("[%d] %-8s  %d+%d dmg  %s",
+                    DrawText(TextFormat("[%d] %-8s  %d+%d  %s",
                              i + 1, WEAPONS[i].name,
                              WEAPONS[i].ammo_mag, WEAPONS[i].ammo_reserve,
                              action),
