@@ -34,9 +34,10 @@ typedef struct {
     bool               active;
     bool               dead;
     Team               team;
-    uint8_t            weapon;
-    int                ammo_mag;
-    int                ammo_reserve;
+    uint8_t            weapon_slot[2];     /* [0]=primary (0xFF=empty), [1]=pistol */
+    int                ammo_mag_slot[2];
+    int                ammo_reserve_slot[2];
+    int                active_slot;        /* 0=primary, 1=pistol, 2=knife */
     int                money;
     double             last_seen;
 } SrvClient;
@@ -100,9 +101,13 @@ static void server_restart_round(SrvClient *clients)
         clients[i].dead          = false;
         clients[i].player.health = 100;
         clients[i].player.velocity = (Vector3){ 0, 0, 0 };
-        /* Refill ammo for current weapon */
-        clients[i].ammo_mag     = WEAPONS[clients[i].weapon].ammo_mag;
-        clients[i].ammo_reserve = WEAPONS[clients[i].weapon].ammo_reserve;
+        /* Refill ammo for current weapons */
+        for (int s = 0; s < 2; s++) {
+            if (clients[i].weapon_slot[s] != 0xFF) {
+                clients[i].ammo_mag_slot[s]     = WEAPONS[clients[i].weapon_slot[s]].ammo_mag;
+                clients[i].ammo_reserve_slot[s] = WEAPONS[clients[i].weapon_slot[s]].ammo_reserve;
+            }
+        }
         if (clients[i].team == TEAM_CT) {
             clients[i].player.position = CT_SPAWNS[ct_idx++ % 5];
         } else {
@@ -135,7 +140,9 @@ static void server_apply_shoot(SrvClient *clients, int shooter_id,
 
         float pt = map_ray_hits_box(origin, dir, bmin, bmax);
         if (pt > 0.0f && pt < wall_t) {
-            int dmg = WEAPONS[s->weapon].damage;
+            int aslot = s->active_slot < 2 ? s->active_slot : 1;
+            if (s->weapon_slot[aslot] == 0xFF) continue;
+            int dmg = WEAPONS[s->weapon_slot[aslot]].damage;
             clients[i].player.health -= dmg;
             if (clients[i].player.health <= 0) {
                 clients[i].player.health = 0;
@@ -144,7 +151,7 @@ static void server_apply_shoot(SrvClient *clients, int shooter_id,
                 printf("[server] player %d (%s) killed player %d (%s) with %s  +$%d\n",
                        shooter_id, s->team == TEAM_CT ? "CT" : "T",
                        i, clients[i].team == TEAM_CT ? "CT" : "T",
-                       WEAPONS[s->weapon].name, MONEY_KILL);
+                       WEAPONS[s->weapon_slot[aslot]].name, MONEY_KILL);
             } else {
                 printf("[server] player %d hit player %d for %d hp (%d remain)\n",
                        shooter_id, i, dmg, clients[i].player.health);
@@ -154,7 +161,8 @@ static void server_apply_shoot(SrvClient *clients, int shooter_id,
 }
 
 static void server_recv_packets(int sock, SrvClient *clients, double now,
-                                const RoundState *round, const Map *map)
+                                const RoundState *round, const Map *map,
+                                bool testing)
 {
     uint8_t            buf[512];
     struct sockaddr_in addr;
@@ -190,10 +198,14 @@ static void server_recv_packets(int sock, SrvClient *clients, double now,
                 memset(&clients[id], 0, sizeof(SrvClient));
                 clients[id].addr   = addr;
                 clients[id].active = true;
-                clients[id].money  = MONEY_START;
-                clients[id].weapon = WEAPON_PISTOL;
-                clients[id].ammo_mag     = WEAPONS[WEAPON_PISTOL].ammo_mag;
-                clients[id].ammo_reserve = WEAPONS[WEAPON_PISTOL].ammo_reserve;
+                clients[id].money                = testing ? MONEY_MAX : MONEY_START;
+                clients[id].weapon_slot[0]       = 0xFF;  /* no primary */
+                clients[id].ammo_mag_slot[0]     = 0;
+                clients[id].ammo_reserve_slot[0] = 0;
+                clients[id].weapon_slot[1]       = WEAPON_PISTOL;
+                clients[id].ammo_mag_slot[1]     = WEAPONS[WEAPON_PISTOL].ammo_mag;
+                clients[id].ammo_reserve_slot[1] = WEAPONS[WEAPON_PISTOL].ammo_reserve;
+                clients[id].active_slot          = 1;
 
                 int ct_count = 0, t_count = 0;
                 for (int j = 0; j < MAX_PLAYERS; j++) {
@@ -244,10 +256,12 @@ static void server_recv_packets(int sock, SrvClient *clients, double now,
             if (id < 0 || id >= MAX_PLAYERS || !clients[id].active) continue;
             if (!addr_eq(&clients[id].addr, &addr)) continue;
             if (clients[id].dead || round->phase != PHASE_LIVE) continue;
-            if (clients[id].ammo_mag <= 0) continue;
+            int aslot = clients[id].active_slot < 2 ? clients[id].active_slot : 1;
+            if (clients[id].weapon_slot[aslot] == 0xFF) continue;
+            if (clients[id].ammo_mag_slot[aslot] <= 0) continue;
 
             clients[id].last_seen = now;
-            clients[id].ammo_mag--;
+            clients[id].ammo_mag_slot[aslot]--;
 
             Vector3 dir = { pkt.dx, pkt.dy, pkt.dz };
             server_apply_shoot(clients, id, map, dir);
@@ -258,27 +272,38 @@ static void server_recv_packets(int sock, SrvClient *clients, double now,
             int id = pkt.player_id;
             if (id < 0 || id >= MAX_PLAYERS || !clients[id].active) continue;
             if (!addr_eq(&clients[id].addr, &addr)) continue;
-            if (round->phase != PHASE_BUY) continue;
+            if (round->phase != PHASE_BUY && !testing) continue;
             uint8_t wid = pkt.weapon_id;
             if (wid >= WEAPON_COUNT) continue;
 
-            if (clients[id].weapon == wid) {
+            int tslot = (wid == WEAPON_PISTOL) ? 1 : 0;  /* route pistol→slot1, rifle→slot0 */
+            if (clients[id].weapon_slot[tslot] == wid) {
                 /* Re-buy same weapon = ammo refill */
                 if (clients[id].money < WEAPONS[wid].ammo_price) continue;
                 economy_add(&clients[id].money, -WEAPONS[wid].ammo_price);
-                clients[id].ammo_reserve = WEAPONS[wid].ammo_reserve;
+                clients[id].ammo_reserve_slot[tslot] = WEAPONS[wid].ammo_reserve;
                 printf("[server] player %d refilled %s ammo  $%d remaining\n",
                        id, WEAPONS[wid].name, clients[id].money);
             } else {
                 /* Buy new weapon */
-                if (clients[id].money < WEAPONS[wid].price) continue;
+                if (wid != WEAPON_PISTOL && clients[id].money < WEAPONS[wid].price) continue;
                 economy_add(&clients[id].money, -WEAPONS[wid].price);
-                clients[id].weapon       = wid;
-                clients[id].ammo_mag     = WEAPONS[wid].ammo_mag;
-                clients[id].ammo_reserve = WEAPONS[wid].ammo_reserve;
+                clients[id].weapon_slot[tslot]       = wid;
+                clients[id].ammo_mag_slot[tslot]     = WEAPONS[wid].ammo_mag;
+                clients[id].ammo_reserve_slot[tslot] = WEAPONS[wid].ammo_reserve;
+                clients[id].active_slot              = tslot;  /* auto-equip bought slot */
                 printf("[server] player %d bought %s  $%d remaining\n",
                        id, WEAPONS[wid].name, clients[id].money);
             }
+
+        } else if (type == PKT_EQUIP && n >= (ssize_t)sizeof(PktEquip)) {
+            PktEquip pkt;
+            memcpy(&pkt, buf, sizeof(PktEquip));
+            int id = pkt.player_id;
+            if (id < 0 || id >= MAX_PLAYERS || !clients[id].active) continue;
+            if (!addr_eq(&clients[id].addr, &addr)) continue;
+            if (pkt.slot < 3) clients[id].active_slot = pkt.slot;
+            clients[id].last_seen = now;
 
         } else if (type == PKT_DISCONNECT && n >= (ssize_t)sizeof(PktDisconnect)) {
             PktDisconnect pkt;
@@ -292,7 +317,7 @@ static void server_recv_packets(int sock, SrvClient *clients, double now,
     }
 }
 
-static void server_tick(SrvClient *clients, RoundState *round, float dt)
+static void server_tick(SrvClient *clients, RoundState *round, float dt, bool testing)
 {
     if (round->phase == PHASE_BUY) {
         round_tick_buy(round, dt);
@@ -320,6 +345,10 @@ static void server_tick(SrvClient *clients, RoundState *round, float dt)
         if (round_tick_end(round, dt)) {
             round_start(round);
             server_restart_round(clients);
+            if (testing) {
+                for (int i = 0; i < MAX_PLAYERS; i++)
+                    if (clients[i].active) clients[i].money = MONEY_MAX;
+            }
             printf("[server] new round (buy phase)  (CT:%d T:%d)\n",
                    round->ct_score, round->t_score);
         }
@@ -339,14 +368,22 @@ static void server_send_world(int sock, SrvClient *clients, const RoundState *ro
         pkt.players[i].yaw          = clients[i].player.yaw;
         pkt.players[i].health       = (uint8_t)(clients[i].player.health > 0
                                                 ? clients[i].player.health : 0);
-        pkt.players[i].active       = clients[i].active ? 1 : 0;
-        pkt.players[i].team         = (uint8_t)clients[i].team;
-        pkt.players[i].flags        = clients[i].dead ? 1 : 0;
-        pkt.players[i].money        = (uint16_t)(clients[i].money > 0
-                                                 ? clients[i].money : 0);
-        pkt.players[i].weapon       = clients[i].weapon;
-        pkt.players[i].ammo_mag     = (uint8_t)clients[i].ammo_mag;
-        pkt.players[i].ammo_reserve = (uint8_t)clients[i].ammo_reserve;
+        pkt.players[i].active        = clients[i].active ? 1 : 0;
+        pkt.players[i].team          = (uint8_t)clients[i].team;
+        pkt.players[i].flags         = clients[i].dead ? 1 : 0;
+        pkt.players[i].money         = (uint16_t)(clients[i].money > 0
+                                                  ? clients[i].money : 0);
+        pkt.players[i].weapon        = clients[i].weapon_slot[0];
+        pkt.players[i].ammo_mag      = (uint8_t)(clients[i].ammo_mag_slot[0] > 0
+                                                  ? clients[i].ammo_mag_slot[0] : 0);
+        pkt.players[i].ammo_reserve  = (uint8_t)(clients[i].ammo_reserve_slot[0] > 0
+                                                  ? clients[i].ammo_reserve_slot[0] : 0);
+        pkt.players[i].weapon2       = clients[i].weapon_slot[1];
+        pkt.players[i].ammo2_mag     = (uint8_t)(clients[i].ammo_mag_slot[1] > 0
+                                                  ? clients[i].ammo_mag_slot[1] : 0);
+        pkt.players[i].ammo2_reserve = (uint8_t)(clients[i].ammo_reserve_slot[1] > 0
+                                                  ? clients[i].ammo_reserve_slot[1] : 0);
+        pkt.players[i].active_slot   = (uint8_t)clients[i].active_slot;
     }
 
     float timer_val = (round->phase == PHASE_BUY) ? round->buy_timer : round->timer;
@@ -363,7 +400,7 @@ static void server_send_world(int sock, SrvClient *clients, const RoundState *ro
     }
 }
 
-void server_run(int port)
+void server_run(int port, bool testing)
 {
     signal(SIGINT, handle_sigint);
 
@@ -418,8 +455,8 @@ void server_run(int port)
         }
         last_tick = now_ts;
 
-        server_recv_packets(sock, clients, now, &round, &map);
-        server_tick(clients, &round, SERVER_DT);
+        server_recv_packets(sock, clients, now, &round, &map, testing);
+        server_tick(clients, &round, SERVER_DT, testing);
         server_send_world(sock, clients, &round);
 
         for (int i = 0; i < MAX_PLAYERS; i++) {

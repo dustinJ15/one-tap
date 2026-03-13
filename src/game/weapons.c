@@ -22,38 +22,37 @@ const SprayPoint SPRAY_PISTOL[12] = {
 };
 
 /* AK (30):
- *   shots  0-6  — pure vertical, 0→15°   (pull straight down to counter)
- *   shots  7-29 — pure horizontal, groups of 3, alternating -3.5° / +4.0°
- *                 (step right→left→right, no vertical change)             */
+ *   shots  0-6  — pure vertical, 0→5°  (gentle pull, easy to counter)
+ *   shots  7-29 — smooth sine horizontal, amplitude 2°, period 8 shots
+ *                 pitch locked at 5° throughout horizontal phase          */
 const SprayPoint SPRAY_AK[30] = {
     /* vertical phase */
-    {  0.0f,  0.0f }, {  0.0f,  2.5f }, {  0.0f,  5.5f }, {  0.0f,  8.5f },
-    {  0.0f, 11.0f }, {  0.0f, 13.0f }, {  0.0f, 15.0f },
-    /* horizontal phase — groups of 3 */
-    { -3.5f, 15.0f }, { -3.5f, 15.0f }, { -3.5f, 15.0f },   /* L */
-    {  4.0f, 15.0f }, {  4.0f, 15.0f }, {  4.0f, 15.0f },   /* R */
-    { -3.5f, 15.0f }, { -3.5f, 15.0f }, { -3.5f, 15.0f },   /* L */
-    {  4.0f, 15.0f }, {  4.0f, 15.0f }, {  4.0f, 15.0f },   /* R */
-    { -3.5f, 15.0f }, { -3.5f, 15.0f }, { -3.5f, 15.0f },   /* L */
-    {  4.0f, 15.0f }, {  4.0f, 15.0f }, {  4.0f, 15.0f },   /* R */
-    { -3.5f, 15.0f }, { -3.5f, 15.0f }, { -3.5f, 15.0f },   /* L */
-    {  4.0f, 15.0f }, {  4.0f, 15.0f },                      /* R (last 2) */
+    {  0.00f, 0.0f }, {  0.00f, 0.8f }, {  0.00f, 1.8f }, {  0.00f, 2.8f },
+    {  0.00f, 3.6f }, {  0.00f, 4.3f }, {  0.00f, 5.0f },
+    /* horizontal phase — sine wave, A=1°, period=8, left first */
+    {  0.00f, 5.0f }, { -0.71f, 5.0f }, { -1.00f, 5.0f }, { -0.71f, 5.0f },
+    {  0.00f, 5.0f }, {  0.71f, 5.0f }, {  1.00f, 5.0f }, {  0.71f, 5.0f },
+    {  0.00f, 5.0f }, { -0.71f, 5.0f }, { -1.00f, 5.0f }, { -0.71f, 5.0f },
+    {  0.00f, 5.0f }, {  0.71f, 5.0f }, {  1.00f, 5.0f }, {  0.71f, 5.0f },
+    {  0.00f, 5.0f }, { -0.71f, 5.0f }, { -1.00f, 5.0f }, { -0.71f, 5.0f },
+    {  0.00f, 5.0f }, {  0.71f, 5.0f }, {  1.00f, 5.0f },
 };
 
 /* M4 (30):
- *   shots  0-9  — pure vertical, 0→13°   (gentler than AK)
- *   shots 10-29 — pure horizontal, groups of 4, alternating -2.5° / +2.5° */
+ *   shots  0-9  — pure vertical, 0→4°  (lighter than AK)
+ *   shots 10-29 — smooth sine horizontal, amplitude 1.5°, period 8 shots
+ *                 pitch locked at 4° throughout horizontal phase          */
 const SprayPoint SPRAY_M4[30] = {
     /* vertical phase */
-    {  0.0f,  0.0f }, {  0.0f,  1.5f }, {  0.0f,  3.2f }, {  0.0f,  5.2f },
-    {  0.0f,  7.2f }, {  0.0f,  9.0f }, {  0.0f, 10.5f }, {  0.0f, 11.7f },
-    {  0.0f, 12.5f }, {  0.0f, 13.0f },
-    /* horizontal phase — groups of 4 */
-    { -2.5f, 13.0f }, { -2.5f, 13.0f }, { -2.5f, 13.0f }, { -2.5f, 13.0f }, /* L */
-    {  2.5f, 13.0f }, {  2.5f, 13.0f }, {  2.5f, 13.0f }, {  2.5f, 13.0f }, /* R */
-    { -2.5f, 13.0f }, { -2.5f, 13.0f }, { -2.5f, 13.0f }, { -2.5f, 13.0f }, /* L */
-    {  2.5f, 13.0f }, {  2.5f, 13.0f }, {  2.5f, 13.0f }, {  2.5f, 13.0f }, /* R */
-    { -2.5f, 13.0f }, { -2.5f, 13.0f }, { -2.5f, 13.0f }, { -2.5f, 13.0f }, /* L */
+    {  0.00f, 0.0f }, {  0.00f, 0.5f }, {  0.00f, 1.1f }, {  0.00f, 1.8f },
+    {  0.00f, 2.5f }, {  0.00f, 3.1f }, {  0.00f, 3.5f }, {  0.00f, 3.8f },
+    {  0.00f, 4.0f }, {  0.00f, 4.0f },
+    /* horizontal phase — sine wave, A=0.8°, period=8, left first */
+    {  0.00f, 4.0f }, { -0.57f, 4.0f }, { -0.80f, 4.0f }, { -0.57f, 4.0f },
+    {  0.00f, 4.0f }, {  0.57f, 4.0f }, {  0.80f, 4.0f }, {  0.57f, 4.0f },
+    {  0.00f, 4.0f }, { -0.57f, 4.0f }, { -0.80f, 4.0f }, { -0.57f, 4.0f },
+    {  0.00f, 4.0f }, {  0.57f, 4.0f }, {  0.80f, 4.0f }, {  0.57f, 4.0f },
+    {  0.00f, 4.0f }, { -0.57f, 4.0f }, { -0.80f, 4.0f }, { -0.57f, 4.0f },
 };
 
 /* AWP (10): first shot perfect; subsequent shots have massive kick.

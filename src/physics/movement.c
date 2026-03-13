@@ -81,7 +81,13 @@ void player_update(PlayerState *p, const PlayerInput *in, float dt)
     }
 
     /* --- Crouch --- */
-    p->crouching     = in->crouch;
+    bool was_crouching = p->crouching;
+    p->crouching       = in->crouch;
+    if (p->crouching && !was_crouching)
+        p->position.y -= (PLAYER_EYE_STAND - PLAYER_EYE_CROUCH);  /* keep feet planted */
+    else if (!p->crouching && was_crouching)
+        p->position.y += (PLAYER_EYE_STAND - PLAYER_EYE_CROUCH);  /* stand up */
+
     float spd_cap    = p->crouching ? PLAYER_SPEED_CROUCH : PLAYER_SPEED_GROUND;
     if (in->max_speed > 0.0f && in->max_speed < spd_cap) spd_cap = in->max_speed;
     float wish_speed = wish_len * spd_cap;
@@ -95,10 +101,20 @@ void player_update(PlayerState *p, const PlayerInput *in, float dt)
             p->on_ground  = false;
         }
     } else {
-        /* Air accel: wish_speed capped at 30 — low cap is what gives CS its feel */
-        float air_wish = wish_speed < PLAYER_AIR_SPEED_CAP ? wish_speed
-                                                            : PLAYER_AIR_SPEED_CAP;
-        accelerate(p, wish_dir, air_wish, PLAYER_ACCEL_AIR, dt);
+        /* CS 1.6 air accel: addspeed capped at sv_maxairspeed (30), but the
+         * acceleration multiplier uses the full wishspeed (250).  This matches
+         * GoldSrc behaviour and makes strafing feel snappy. */
+        float cap = wish_speed < PLAYER_AIR_SPEED_CAP ? wish_speed : PLAYER_AIR_SPEED_CAP;
+        if (cap > 0.0f && wish_len > 0.0f) {
+            float current     = p->velocity.x * wish_dir.x + p->velocity.z * wish_dir.z;
+            float add         = cap - current;
+            if (add > 0.0f) {
+                float accel_speed = PLAYER_ACCEL_AIR * wish_speed * dt; /* full wishspeed */
+                if (accel_speed > add) accel_speed = add;
+                p->velocity.x += accel_speed * wish_dir.x;
+                p->velocity.z += accel_speed * wish_dir.z;
+            }
+        }
         p->velocity.y -= PLAYER_GRAVITY * dt;
     }
 

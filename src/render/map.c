@@ -187,16 +187,20 @@ void map_collide(const Map *m, PlayerState *p)
         }
     }
 
-    /* Ground check: thin slice just below the player's feet */
+    /* Ground check: thin slice just below feet.
+     * Skip when moving upward — prevents false positives at high FPS right
+     * after a jump (player hasn't cleared the floor yet in world units). */
     {
         float feet_y = p->position.y - eye_h;
-        Vector3 gmin = { p->position.x - PLAYER_HALF_WIDTH, feet_y - 2.0f,  p->position.z - PLAYER_HALF_WIDTH };
+        Vector3 gmin = { p->position.x - PLAYER_HALF_WIDTH, feet_y - 1.0f,  p->position.z - PLAYER_HALF_WIDTH };
         Vector3 gmax = { p->position.x + PLAYER_HALF_WIDTH, feet_y + 0.5f,  p->position.z + PLAYER_HALF_WIDTH };
         p->on_ground = false;
-        for (int i = 0; i < m->count; i++) {
-            if (boxes_overlap(gmin, gmax, m->boxes[i].min, m->boxes[i].max)) {
-                p->on_ground = true;
-                break;
+        if (p->velocity.y <= 0.0f) {
+            for (int i = 0; i < m->count; i++) {
+                if (boxes_overlap(gmin, gmax, m->boxes[i].min, m->boxes[i].max)) {
+                    p->on_ground = true;
+                    break;
+                }
             }
         }
     }

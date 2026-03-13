@@ -3,7 +3,7 @@
 
 const WeaponDef WEAPONS[WEAPON_COUNT] = {
     /*           name    price  ammo$ mag res  dmg  rate  rld   move  semi */
-    [WEAPON_PISTOL] = { "Pistol", 0,   200,  12,  36,  35, 0.25f, 1.0f, 1.0f, true  },
+    [WEAPON_PISTOL] = { "Pistol", 0,   200,  12,  36,  35, 0.0f,  1.0f, 1.0f, true  },
     [WEAPON_AK]     = { "AK",  2700,   400,  30,  90, 100, 0.10f, 2.5f, 0.85f, false },
     [WEAPON_M4]     = { "M4",  3100,   400,  30,  90,  70, 0.09f, 3.1f, 0.90f, false },
     [WEAPON_AWP]    = { "AWP", 4750,   300,  10,  30, 100, 1.50f, 3.7f, 0.70f, true  },

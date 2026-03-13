@@ -18,6 +18,7 @@
 #define PKT_DISCONNECT 5
 #define PKT_BUY        6
 #define PKT_SHOOT      7
+#define PKT_EQUIP      8
 
 /* Button bitmask bits (shoot is now PKT_SHOOT, kept for future use) */
 #define BTN_FORWARD  (1 << 0)
@@ -56,10 +57,14 @@ typedef struct {
     uint8_t  team;         /* 0=CT 1=T */
     uint8_t  flags;        /* bit0=dead */
     uint16_t money;
-    uint8_t  weapon;       /* WeaponId */
-    uint8_t  ammo_mag;
-    uint8_t  ammo_reserve;
-} PlayerInfo;   /* 25 bytes */
+    uint8_t  weapon;       /* slot 0 (primary) weapon id, 0xFF = empty */
+    uint8_t  ammo_mag;     /* slot 0 ammo mag */
+    uint8_t  ammo_reserve; /* slot 0 ammo reserve */
+    uint8_t  weapon2;      /* slot 1 (pistol) weapon id */
+    uint8_t  ammo2_mag;    /* slot 1 ammo mag */
+    uint8_t  ammo2_reserve;/* slot 1 ammo reserve */
+    uint8_t  active_slot;  /* 0=primary, 1=pistol, 2=knife */
+} PlayerInfo;   /* 29 bytes */
 
 typedef struct {
     uint8_t    type;
@@ -70,10 +75,11 @@ typedef struct {
     uint8_t    ct_score;
     uint8_t    t_score;
     uint8_t    win_team;     /* 0=none 1=CT 2=T */
-} PktWorld;   /* 1 + 4 + 10*25 + 6 = 261 bytes */
+} PktWorld;   /* 1 + 4 + 10*29 + 6 = 301 bytes */
 
 typedef struct { uint8_t type; uint8_t player_id; }                    PktDisconnect;
 typedef struct { uint8_t type; uint8_t player_id; uint8_t weapon_id; } PktBuy;
+typedef struct { uint8_t type; uint8_t player_id; uint8_t slot; }      PktEquip;
 
 #pragma pack(pop)
 
@@ -95,10 +101,11 @@ bool net_client_connect(NetClient *c, const char *server_ip, int port);
 void net_client_send_input(NetClient *c, uint8_t buttons, float yaw, float pitch,
                            float x, float y, float z);
 void net_client_buy(NetClient *c, uint8_t weapon_id);
+void net_client_equip(NetClient *c, uint8_t slot);
 void net_client_shoot(NetClient *c, float dx, float dy, float dz);
 void net_client_recv(NetClient *c);
 void net_client_disconnect(NetClient *c);
 
-void server_run(int port);
+void server_run(int port, bool testing);
 
 #endif
