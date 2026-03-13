@@ -65,7 +65,9 @@ typedef struct {
     uint8_t  ammo2_mag;    /* slot 1 ammo mag */
     uint8_t  ammo2_reserve;/* slot 1 ammo reserve */
     uint8_t  active_slot;  /* 0=primary, 1=pistol, 2=knife */
-} PlayerInfo;   /* 29 bytes */
+    uint8_t  shot_seq;     /* increments each shot; client detects change to spawn tracer */
+    float    shot_dx, shot_dy, shot_dz;  /* last shot direction (normalised) */
+} PlayerInfo;   /* 42 bytes */
 
 typedef struct {
     uint8_t    type;

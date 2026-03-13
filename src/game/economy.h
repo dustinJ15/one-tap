@@ -13,6 +13,7 @@ typedef enum {
     WEAPON_AK     = 1,
     WEAPON_M4     = 2,
     WEAPON_AWP    = 3,
+    WEAPON_KNIFE   = 4,
     WEAPON_COUNT
 } WeaponId;
 

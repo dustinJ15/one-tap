@@ -1,4 +1,5 @@
 #include "raylib.h"
+#include "rlgl.h"
 #include "physics/movement.h"
 #include "render/map.h"
 #include "game/weapons.h"
@@ -17,6 +18,126 @@
 #define MAX_HOLES     512
 
 typedef struct { Vector3 pos; Vector3 normal; } BulletHole;
+
+#define MAX_TRACERS  64
+#define TRACER_LIFE  0.15f
+typedef struct { Vector3 origin; Vector3 endpoint; float born; } Tracer;
+
+/*
+ * Draw a blocky gun model in local gun-space.
+ * Origin is the grip/handle position in world space.
+ * After translation + yaw/pitch rotation, -Z = forward, +X = camera right, +Y = up.
+ * Muzzle tip distances (forward from origin along -Z):
+ *   Pistol=21  AK=42  M4=37  AWP=52
+ */
+static void draw_gun(WeaponId wid, Vector3 origin, float yaw, float pitch, const WeaponState *ws)
+{
+    Color gray1 = { 40, 40, 40, 150 };  /* dark */
+    Color gray2 = { 65, 65, 65, 150 };  /* medium */
+    Color gray3 = { 25, 25, 25, 150 };  /* very dark */
+
+    rlPushMatrix();
+    rlTranslatef(origin.x, origin.y, origin.z);
+
+    /* Melee swiping animation (procedural) */
+    if (wid == WEAPON_KNIFE && ws->swing_timer > 0.0f) {
+        float t = ws->swing_timer;
+        if (ws->swing_type == 1) { /* Light: horizontal swipe */
+            float swipe = sinf(t * 10.0f) * 40.0f;
+            rlRotatef(swipe, 0, 1, 0);
+            rlTranslatef(swipe * 0.2f, 0, 0);
+        } else { /* Heavy: overhead chop */
+            float chop = sinf(t * 8.0f) * 50.0f;
+            rlRotatef(chop, 1, 0, 0);
+            rlTranslatef(0, -chop * 0.1f, chop * 0.2f);
+        }
+    }
+
+    rlRotatef(-yaw,   0.0f, 1.0f, 0.0f);
+    rlRotatef( pitch, 1.0f, 0.0f, 0.0f);
+
+    switch (wid) {
+        case WEAPON_PISTOL: /* Completely NEW Glock-18 silhouette */
+            DrawCubeV((Vector3){ 0, 1.8f, -7.0f }, (Vector3){ 3.8f, 3.2f, 18.0f }, gray1);  /* main slide */
+            DrawCubeV((Vector3){ 0, 3.4f, -7.0f }, (Vector3){ 3.2f, 1.0f, 17.5f }, gray2);  /* slide top taper */
+            DrawCubeV((Vector3){ 0, -6.5f, 1.5f }, (Vector3){ 3.8f, 12.0f, 5.5f }, gray1);  /* ergonomic tilted grip */
+            DrawCubeV((Vector3){ 0, -0.5f, -1.0f }, (Vector3){ 3.8f, 3.5f, 10.0f }, gray1); /* frame back */
+            DrawCubeV((Vector3){ 0, 0.0f, -6.5f }, (Vector3){ 3.2f, 1.5f, 9.0f }, gray1);   /* trigger guard box */
+            DrawCubeV((Vector3){ 0, 4.0f, -15.5f }, (Vector3){ 0.8f, 1.2f, 1.2f }, gray3);  /* front sight dot */
+            DrawCubeV((Vector3){ 0, 4.0f, 1.5f }, (Vector3){ 1.5f, 1.2f, 1.0f }, gray3);    /* rear sight notch */
+            break;
+
+        case WEAPON_AK: /* Completely NEW AK-47 Build (Scrapped old one) */
+            /* Barrel & Gas */
+            DrawCubeV((Vector3){ 0, 0.8f, -22.0f }, (Vector3){ 1.2f, 1.2f, 44.0f }, gray3); /* thin long barrel */
+            DrawCubeV((Vector3){ 0, 2.5f, -18.0f }, (Vector3){ 1.0f, 1.0f, 36.0f }, gray1); /* parallel gas tube */
+            DrawCubeV((Vector3){ 0, 1.8f, -32.0f }, (Vector3){ 1.5f, 3.5f, 2.5f }, gray3);  /* gas block hump */
+            DrawCubeV((Vector3){ 0, 0.8f, -44.0f }, (Vector3){ 1.8f, 1.8f, 2.5f }, gray3);  /* slant compensator */
+            DrawCubeV((Vector3){ 0, 3.2f, -42.0f }, (Vector3){ 0.5f, 3.0f, 1.2f }, gray3);  /* front sight post */
+            /* Receiver */
+            DrawCubeV((Vector3){ 0, 0.0f, -2.0f }, (Vector3){ 4.5f, 5.5f, 24.0f }, gray1);  /* stamped lower receiver */
+            DrawCubeV((Vector3){ 0, 3.5f, -2.0f }, (Vector3){ 3.2f, 2.5f, 24.0f }, gray2);  /* rounded dust cover */
+            /* Woodwork */
+            DrawCubeV((Vector3){ 0, -0.5f, -12.0f }, (Vector3){ 4.2f, 4.2f, 12.0f }, gray2); /* lower handguard chunky */
+            DrawCubeV((Vector3){ 0, 2.5f, -12.0f }, (Vector3){ 3.5f, 2.0f, 11.0f }, gray2);  /* upper handguard rounded */
+            DrawCubeV((Vector3){ 0, -1.0f, 14.0f }, (Vector3){ 3.8f, 5.0f, 18.0f }, gray2);  /* classic straight wood stock */
+            /* Ergonomics */
+            DrawCubeV((Vector3){ 0, -8.5f, 1.5f }, (Vector3){ 3.2f, 11.0f, 4.8f }, gray1);  /* bakelite-style grip */
+            DrawCubeV((Vector3){ 0, -11.0f, -7.0f }, (Vector3){ 2.8f, 12.0f, 4.0f }, gray3); /* banana mag top */
+            DrawCubeV((Vector3){ 0, -15.0f, -11.0f }, (Vector3){ 2.8f, 9.0f, 4.0f }, gray3);  /* banana mag bend */
+            DrawCubeV((Vector3){ 0, 1.5f, 3.0f }, (Vector3){ 6.0f, 1.0f, 1.5f }, gray1);    /* bolt carrier handle */
+            break;
+
+        case WEAPON_M4: /* High-fidelity M4A1 */
+            DrawCubeV((Vector3){ 0, 0.5f, -20.0f }, (Vector3){ 1.6f, 1.6f, 40.0f }, gray1); /* barrel */
+            DrawCubeV((Vector3){ 0, 0.5f, -40.0f }, (Vector3){ 2.5f, 2.5f, 4.0f }, gray3);  /* flash hider */
+            DrawCubeV((Vector3){ 0, 0.5f, -2.0f }, (Vector3){ 4.0f, 6.0f, 22.0f }, gray1);  /* receiver */
+            DrawCubeV((Vector3){ 0, 0.5f, -14.0f }, (Vector3){ 3.8f, 4.2f, 14.0f }, gray1); /* ribbed handguard */
+            DrawCubeV((Vector3){ 0, 0.5f, 12.0f }, (Vector3){ 3.5f, 3.5f, 14.0f }, gray1);  /* buffer tube/stock */
+            DrawCubeV((Vector3){ 0, 0.5f, 18.0f }, (Vector3){ 4.0f, 5.0f, 6.0f }, gray2);   /* buttstock */
+            DrawCubeV((Vector3){ 0, -8.0f, 0.0f }, (Vector3){ 3.0f, 11.0f, 4.5f }, gray1);  /* grip */
+            DrawCubeV((Vector3){ 0, -7.0f, -5.0f }, (Vector3){ 2.5f, 12.0f, 5.0f }, gray2); /* mag */
+            DrawCubeV((Vector3){ 0, 4.5f, -2.0f }, (Vector3){ 1.2f, 2.5f, 18.0f }, gray1);  /* carry handle */
+            DrawCubeV((Vector3){ 0, 3.5f, -30.0f }, (Vector3){ 0.8f, 5.0f, 2.0f }, gray3);  /* triangular front sight */
+            break;
+
+        case WEAPON_AWP: { /* High-fidelity AWP */
+            /* Heavy Barrel */
+            DrawCubeV((Vector3){ 0, 0.5f, -28.0f }, (Vector3){ 2.4f, 2.4f, 52.0f }, gray1);
+            DrawCubeV((Vector3){ 0, 0.5f, -54.0f }, (Vector3){ 3.2f, 3.2f, 6.0f }, gray3); /* muzzle brake */
+            /* Stock / Body */
+            DrawCubeV((Vector3){ 0, 1.0f, -2.0f }, (Vector3){ 5.0f, 6.0f, 24.0f }, gray2); /* receiver area */
+            DrawCubeV((Vector3){ 0, 1.0f, 14.0f }, (Vector3){ 4.5f, 6.0f, 20.0f }, gray2); /* main stock body */
+            DrawCubeV((Vector3){ 0, 1.0f, 24.0f }, (Vector3){ 3.5f, 5.5f, 12.0f }, gray2); /* rear stock */
+            DrawCubeV((Vector3){ 0, 4.5f, 22.0f }, (Vector3){ 4.0f, 2.5f, 8.0f }, gray1);  /* cheek rest */
+            /* Grip and Thumbhole */
+            DrawCubeV((Vector3){ 0, -8.0f, 1.5f }, (Vector3){ 3.5f, 12.0f, 5.0f }, gray2); /* grip */
+            DrawCubeV((Vector3){ 0, -1.0f, 14.0f }, (Vector3){ 3.0f, 2.5f, 8.0f }, gray3); /* thumbhole cutout */
+            /* Scope */
+            DrawCubeV((Vector3){ 0, 5.5f, -4.0f }, (Vector3){ 3.0f, 1.5f, 20.0f }, gray1); /* base rail */
+            DrawCubeV((Vector3){ 0, 8.5f, -2.0f }, (Vector3){ 3.2f, 3.2f, 24.0f }, gray3); /* scope tube */
+            DrawCubeV((Vector3){ 0, 8.5f, -14.0f }, (Vector3){ 4.8f, 4.8f, 6.0f }, gray3); /* objective */
+            DrawCubeV((Vector3){ 0, 8.5f, 10.0f }, (Vector3){ 4.2f, 4.2f, 6.0f }, gray3);  /* eyepiece */
+            DrawCubeV((Vector3){ 0, -5.5f, -4.0f }, (Vector3){ 3.0f, 6.0f, 4.5f }, gray1); /* mag */
+            break;
+        }
+
+        case WEAPON_KNIFE: { /* CS 1.6 Knife Pose (Pointed UP and IN toward screen) */
+            rlRotatef(25.0f, 0.0f, 0.0f, 1.0f);  /* slant toward center */
+            rlRotatef(45.0f, 1.0f, 0.0f, 0.0f);  /* point UP */
+            DrawCubeV((Vector3){ 0, 0.0f, 6.0f }, (Vector3){ 2.8f, 3.2f, 12.0f }, gray1);  /* handle */
+            DrawCubeV((Vector3){ 0, 0.0f, 0.5f }, (Vector3){ 5.0f, 4.5f, 1.5f }, gray3);   /* guard */
+            DrawCubeV((Vector3){ 0, 0.0f, -8.0f }, (Vector3){ 0.8f, 3.5f, 16.0f }, gray2);  /* blade spine */
+            DrawCubeV((Vector3){ 0, -1.2f, -8.5f }, (Vector3){ 0.5f, 1.5f, 15.0f }, gray3); /* blade edge */
+            DrawCubeV((Vector3){ 0, 0.0f, -16.0f }, (Vector3){ 0.7f, 2.0f, 4.0f }, gray2);  /* blade tip */
+            break;
+        }
+
+        default: break;
+    }
+
+    rlPopMatrix();
+}
 
 int main(int argc, char **argv)
 {
@@ -57,9 +178,11 @@ int main(int argc, char **argv)
     Map map;
     map_build(&map);
 
-    WeaponState slots[2];
+    WeaponState slots[3];
     weapon_init(&slots[0]);   /* primary - empty until bought */
     weapon_init(&slots[1]);   /* pistol - always have it */
+    weapon_init(&slots[2]);   /* knife - always have it */
+    weapon_switch(&slots[2], WEAPON_KNIFE);
     int  active_slot    = 1;  /* start on pistol */
     int  last_slot      = 1;  /* for Q quickswitch */
     bool has_primary    = false;
@@ -67,6 +190,19 @@ int main(int argc, char **argv)
 
     BulletHole holes[MAX_HOLES];
     int     hole_count     = 0;
+    Tracer  tracers[MAX_TRACERS];
+    memset(tracers, 0, sizeof(tracers));
+    int     tracer_head    = 0;
+    int     shot_count     = 0;
+    Vector3 gun_origin     = { 0 };
+    Vector3 muzzle_pos     = { 0 };
+    Vector3 gun_cam_fwd    = { 0, 0, -1 };
+    Vector3 gun_cam_right  = { 1, 0,  0 };
+    Vector3 gun_cam_up     = { 0, 1,  0 };
+    float   gun_dev_yaw    = 0.0f;
+    float   gun_dev_pitch  = 0.0f;
+    uint8_t prev_shot_seq[MAX_PLAYERS];
+    memset(prev_shot_seq, 0, sizeof(prev_shot_seq));
     bool    buy_menu_open  = false;
     bool    paused          = false;
     bool    settings_open   = false;
@@ -103,20 +239,25 @@ int main(int argc, char **argv)
             if (srv_primary != 0xFF) {
                 if (!has_primary || (WeaponId)srv_primary != slots[0].weapon_id) {
                     weapon_switch(&slots[0], (WeaponId)srv_primary);
-                    slots[0].ammo_mag     = (int)net.remote[net.my_id].ammo_mag;
-                    slots[0].ammo_reserve = (int)net.remote[net.my_id].ammo_reserve;
                     has_primary = true;
                 }
+                /* Always sync ammo from server packet */
+                slots[0].ammo_mag     = (int)net.remote[net.my_id].ammo_mag;
+                slots[0].ammo_reserve = (int)net.remote[net.my_id].ammo_reserve;
             } else {
+                if (has_primary) weapon_switch(&slots[0], (WeaponId)0xFF);
                 has_primary = false;
             }
 
             if ((WeaponId)srv_pistol != slots[1].weapon_id)
                 weapon_switch(&slots[1], (WeaponId)srv_pistol);
+            slots[1].ammo_mag     = (int)net.remote[net.my_id].ammo2_mag;
+            slots[1].ammo_reserve = (int)net.remote[net.my_id].ammo2_reserve;
 
             if (net.round_phase == PHASE_BUY && prev_phase == PHASE_END) {
                 weapon_round_reset(&slots[0]);
                 weapon_round_reset(&slots[1]);
+                weapon_round_reset(&slots[2]);
                 slots[0].ammo_mag     = (int)net.remote[net.my_id].ammo_mag;
                 slots[0].ammo_reserve = (int)net.remote[net.my_id].ammo_reserve;
                 slots[1].ammo_mag     = (int)net.remote[net.my_id].ammo2_mag;
@@ -126,7 +267,7 @@ int main(int argc, char **argv)
         prev_phase = net.round_phase;
 
         /* --- Active weapon and move factor --- */
-        WeaponState *active_ws = &slots[active_slot < 2 ? active_slot : 1];
+        WeaponState *active_ws = &slots[active_slot < 3 ? active_slot : 2];
         bool awp_active = (active_slot == 0 && has_primary && slots[0].weapon_id == WEAPON_AWP);
         bool awp_zoomed = awp_active && awp_wants_zoom && slots[0].shot_timer == 0.0f;
         if (!awp_active) awp_wants_zoom = false;
@@ -160,6 +301,22 @@ int main(int argc, char **argv)
         map_collide(&map, &player);
         Camera3D cam = player_camera(&player);
         if (awp_zoomed) cam.fovy = 20.0f;
+
+        /* --- Gun viewmodel basis (screen-fixed: uses full camera basis so pitch doesn't shift it) --- */
+        {
+            float vm_yr = player.yaw   * DEG2RAD;
+            float vm_pr = player.pitch * DEG2RAD;
+            /* Full camera basis — also saved to outer vars for spray deviation */
+            gun_cam_fwd   = (Vector3){  sinf(vm_yr)*cosf(vm_pr),  sinf(vm_pr), -cosf(vm_yr)*cosf(vm_pr) };
+            gun_cam_right = (Vector3){  cosf(vm_yr),               0.0f,         sinf(vm_yr)             };
+            gun_cam_up    = (Vector3){ -sinf(vm_yr)*sinf(vm_pr),   cosf(vm_pr),  cosf(vm_yr)*sinf(vm_pr) };
+            /* Fixed camera-space offset: 30 forward, 32 right, 18 down */
+            gun_origin = (Vector3){
+                player.position.x + gun_cam_fwd.x*30.0f + gun_cam_right.x*32.0f - gun_cam_up.x*18.0f,
+                player.position.y + gun_cam_fwd.y*30.0f + gun_cam_right.y*32.0f - gun_cam_up.y*18.0f,
+                player.position.z + gun_cam_fwd.z*30.0f + gun_cam_right.z*32.0f - gun_cam_up.z*18.0f,
+            };
+        }
 
         /* --- Misc keys --- */
         if (IsKeyPressed(KEY_F11)) ToggleFullscreen();
@@ -197,6 +354,23 @@ int main(int argc, char **argv)
             am_dead   = net.remote[net.my_id].flags & 1;
             round_end = net.round_phase == PHASE_END;
             in_buy    = net.round_phase == PHASE_BUY;
+
+            /* Spawn tracers for remote players when shot_seq changes */
+            for (int i = 0; i < MAX_PLAYERS; i++) {
+                if (!net.remote[i].active || i == net.my_id) continue;
+                if (net.remote[i].shot_seq == prev_shot_seq[i]) continue;
+                prev_shot_seq[i] = net.remote[i].shot_seq;
+                Vector3 origin = { net.remote[i].x, net.remote[i].y, net.remote[i].z };
+                Vector3 dir    = { net.remote[i].shot_dx, net.remote[i].shot_dy, net.remote[i].shot_dz };
+                RayHit  rh     = map_raycast(&map, origin, dir);
+                Vector3 ep     = rh.hit
+                    ? rh.point
+                    : (Vector3){ origin.x + dir.x * 2000.0f,
+                                 origin.y + dir.y * 2000.0f,
+                                 origin.z + dir.z * 2000.0f };
+                tracers[tracer_head % MAX_TRACERS] = (Tracer){ origin, ep, (float)GetTime() };
+                tracer_head++;
+            }
         }
 
         if (paused) goto draw;
@@ -248,31 +422,91 @@ int main(int argc, char **argv)
         /* --- Weapon tick (fire rate, reload, spray reset) --- */
         /* In testing mode, keep mags full so the client never auto-reloads */
         if (testing) {
-            for (int s = 0; s < 2; s++) {
+            for (int s = 0; s < 3; s++) {
                 if (slots[s].weapon_id < WEAPON_COUNT)
                     slots[s].ammo_reserve = WEAPONS[slots[s].weapon_id].ammo_reserve;
             }
         }
         weapon_tick(&slots[0], dt);
         weapon_tick(&slots[1], dt);
+        weapon_tick(&slots[2], dt);
 
         /* --- Shoot --- */
         bool trigger_pressed = IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
         bool trigger_held    = IsMouseButtonDown(MOUSE_BUTTON_LEFT);
 
         Vector3 shot_dir;
-        bool can_fire = active_slot < 2 && !(active_slot == 0 && !has_primary);
-        if (!am_dead && !round_end && can_fire &&
-            weapon_try_fire(active_ws, trigger_pressed, trigger_held, &player, &shot_dir))
+        bool can_fire = active_slot < 3 && !(active_slot == 0 && !has_primary);
+        float prev_shot_idx = active_ws->shot_index;
+        bool shot_fired = !am_dead && !round_end && can_fire &&
+            weapon_try_fire(active_ws, trigger_pressed, trigger_held, &player, &shot_dir);
+
+        /* Viewmodel/Recoil tracking (updated after shooting so index is current) */
+        {
+            /* Target spray based on interpolated shot_index */
+            int pat_len = 0;
+            const SprayPoint *pat = NULL;
+            switch (active_ws->weapon_id) {
+                case WEAPON_AK:  pat = SPRAY_AK; pat_len = 30; break;
+                case WEAPON_M4:  pat = SPRAY_M4; pat_len = 30; break;
+                case WEAPON_AWP: pat = SPRAY_AWP; pat_len = 10; break;
+                case WEAPON_PISTOL: pat = SPRAY_PISTOL; pat_len = 12; break;
+                default: break;
+            }
+
+            float target_yaw = 0.0f, target_pitch = 0.0f;
+            if (pat) {
+                float sidx = active_ws->shot_index;
+                int i0 = (int)sidx;
+                int i1 = i0 + 1;
+                if (i1 >= pat_len) i1 = pat_len - 1;
+                if (i0 >= pat_len) i0 = pat_len - 1;
+                float f = sidx - (float)i0;
+                target_yaw   = pat[i0].yaw   * (1.0f - f) + pat[i1].yaw   * f;
+                target_pitch = pat[i0].pitch * (1.0f - f) + pat[i1].pitch * f;
+            }
+
+            /* Snappy follow (100 Hz lerp speed) */
+            float lerp_speed = 100.0f;
+            gun_dev_yaw   += (target_yaw   - gun_dev_yaw)   * (1.0f - expf(-dt * lerp_speed));
+            gun_dev_pitch += (target_pitch - gun_dev_pitch) * (1.0f - expf(-dt * lerp_speed));
+
+            /* Muzzle position follows smooth gun deviation */
+            static const float MUZZLE_DIST[WEAPON_COUNT] = { 18.0f, 44.0f, 42.0f, 57.0f, 18.0f };
+            WeaponId cur_wid = active_ws->weapon_id;
+            float mdist = (cur_wid < WEAPON_COUNT) ? MUZZLE_DIST[cur_wid] : 18.0f;
+
+            float vm_yr = (player.yaw   + gun_dev_yaw)   * DEG2RAD;
+            float vm_pr = (player.pitch + gun_dev_pitch) * DEG2RAD;
+            Vector3 dev_fwd = { sinf(vm_yr)*cosf(vm_pr), sinf(vm_pr), -cosf(vm_yr)*cosf(vm_pr) };
+
+            muzzle_pos = (Vector3){
+                gun_origin.x + dev_fwd.x * mdist,
+                gun_origin.y + dev_fwd.y * mdist,
+                gun_origin.z + dev_fwd.z * mdist,
+            };
+        }
+
+        if (shot_fired)
         {
             /* Movement inaccuracy — random cone spread based on speed */
             const WeaponDef *wdef = &WEAPONS[active_ws->weapon_id];
             float hspeed   = sqrtf(player.velocity.x * player.velocity.x +
                                    player.velocity.z * player.velocity.z);
             float spd_frac = fminf(hspeed / PLAYER_SPEED_GROUND, 1.0f);
-            float inac     = wdef->inaccuracy_stand
-                           + wdef->inaccuracy_move * spd_frac
-                           + (!player.on_ground ? wdef->inaccuracy_air : 0.0f);
+            
+            float inac;
+            if (hspeed < 1.0f && player.on_ground) {
+                /* Only the unscoped AWP has inaccuracy while standing still. 
+                 * Everything else (and scoped AWP) is perfectly laser-accurate. */
+                if (active_ws->weapon_id == WEAPON_AWP && !awp_zoomed) inac = wdef->inaccuracy_stand;
+                else inac = 0.0f;
+            } else {
+                inac = wdef->inaccuracy_stand
+                     + wdef->inaccuracy_move * spd_frac
+                     + (!player.on_ground ? wdef->inaccuracy_air : 0.0f);
+            }
+
             if (inac > 0.0f) {
                 float phi = ((float)rand() / (float)RAND_MAX) * 2.0f * PI;
                 float r   = sqrtf((float)rand() / (float)RAND_MAX) * inac * DEG2RAD;
@@ -284,12 +518,35 @@ int main(int argc, char **argv)
                 shot_dir.z = -cosf(yr) * cosf(pr);
             }
 
-            /* Local visual: bullet hole */
+            /* Local visual: bullet hole + tracer */
             RayHit hit = map_raycast(&map, player.position, shot_dir);
             if (hit.hit && hole_count < MAX_HOLES) {
                 holes[hole_count].pos    = hit.point;
                 holes[hole_count].normal = hit.normal;
                 hole_count++;
+            }
+            {
+                Vector3 ep = hit.hit
+                    ? hit.point
+                    : (Vector3){ player.position.x + shot_dir.x * 2000.0f,
+                                 player.position.y + shot_dir.y * 2000.0f,
+                                 player.position.z + shot_dir.z * 2000.0f };
+                {
+                    WeaponId wid = active_ws->weapon_id;
+                    bool first_shot = (prev_shot_idx < 0.5f);
+                    bool spawn_tracer = false;
+                    if (wid == WEAPON_PISTOL) {
+                        spawn_tracer = true;
+                    } else if (wid != WEAPON_AWP) {
+                        /* Rifles: first shot of spray always, then every 3rd */
+                        shot_count++;
+                        spawn_tracer = first_shot || (shot_count % 3 == 0);
+                    }
+                    if (spawn_tracer) {
+                        tracers[tracer_head % MAX_TRACERS] = (Tracer){ muzzle_pos, ep, (float)GetTime() };
+                        tracer_head++;
+                    }
+                }
             }
             /* Network: send shot direction to server */
             if (net.connected)
@@ -316,6 +573,17 @@ int main(int argc, char **argv)
                     DrawCubeV(p, size, (Color){ 12, 12, 12, 255 });
                 }
 
+                /* Tracers */
+                {
+                    float now3d = (float)GetTime();
+                    for (int i = 0; i < MAX_TRACERS; i++) {
+                        float age = now3d - tracers[i].born;
+                        if (age < 0.0f || age >= TRACER_LIFE) continue;
+                        unsigned char a = (unsigned char)((1.0f - age / TRACER_LIFE) * 200.0f);
+                        DrawLine3D(tracers[i].origin, tracers[i].endpoint, (Color){220, 210, 170, a});
+                    }
+                }
+
                 if (net.connected) {
                     for (int i = 0; i < MAX_PLAYERS; i++) {
                         if (!net.remote[i].active || i == net.my_id) continue;
@@ -331,6 +599,27 @@ int main(int argc, char **argv)
                 }
 
             EndMode3D();
+
+            /* Fixed viewmodel pass — separate camera that never moves, so gun is
+             * glued to the screen corner regardless of pitch/yaw.              */
+            if (!am_dead && !paused && !awp_zoomed &&
+                active_slot < 3 && !(active_slot == 0 && !has_primary)) {
+                Camera3D hud_cam = { 0 };
+                hud_cam.position   = (Vector3){ 0.0f, 0.0f,  0.0f };
+                hud_cam.target     = (Vector3){ 0.0f, 0.0f, -1.0f };
+                hud_cam.up         = (Vector3){ 0.0f, 1.0f,  0.0f };
+                hud_cam.fovy       = CAMERA_FOV;
+                hud_cam.projection = CAMERA_PERSPECTIVE;
+                BeginMode3D(hud_cam);
+                    rlDrawRenderBatchActive();
+                    rlDisableDepthTest();
+                    /* Gun at fixed camera-space position: 32 right, 18 down, 30 forward */
+                    draw_gun(active_ws->weapon_id, (Vector3){ 32.0f, -18.0f, -30.0f },
+                             gun_dev_yaw, gun_dev_pitch, active_ws);
+                    rlDrawRenderBatchActive();
+                    rlEnableDepthTest();
+                EndMode3D();
+            }
 
             int sw = GetScreenWidth();
             int sh = GetScreenHeight();
@@ -723,6 +1012,7 @@ int main(int argc, char **argv)
     if (net.connected) net_client_disconnect(&net);
     weapon_free(&slots[0]);
     weapon_free(&slots[1]);
+    weapon_free(&slots[2]);
     CloseAudioDevice();
     CloseWindow();
     return 0;

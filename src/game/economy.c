@@ -6,7 +6,8 @@ const WeaponDef WEAPONS[WEAPON_COUNT] = {
     [WEAPON_PISTOL] = { "Pistol",    0, 200, 12,  36,  35, 0.00f, 2.2f, 0.96f,  0.5f,  3.0f,  6.0f, true  },
     [WEAPON_AK]     = { "AK",     2700, 400, 30,  90, 100, 0.10f, 2.4f, 0.85f,  0.2f,  5.0f, 10.0f, false },
     [WEAPON_M4]     = { "M4",     3100, 400, 30,  90,  70, 0.09f, 3.1f, 0.90f,  0.2f,  4.5f,  9.0f, false },
-    [WEAPON_AWP]    = { "AWP",    4750, 300, 10,  30, 100, 1.50f, 3.7f, 0.70f,  0.0f,  8.0f, 14.0f, true  },
+    [WEAPON_AWP]    = { "AWP",    4750, 300, 10,  30, 100, 1.50f, 3.7f, 0.70f, 10.0f, 15.0f, 25.0f, true  },
+    [WEAPON_KNIFE]  = { "Knife",     0,   0,  1,   0,  55, 0.50f, 0.0f, 1.00f,  0.0f,  0.0f,  0.0f, true  },
 };
 
 void economy_add(int *money, int amount)

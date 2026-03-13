@@ -6,9 +6,9 @@
 #include "../physics/movement.h"
 #include "economy.h"
 
-/* Delay after last shot before recovery begins. Must exceed the fastest
- * rifle fire_rate (AK=0.10s) so full-auto spray never self-resets. */
-#define SPRAY_DECAY_DELAY  0.12f
+/* Delay after last shot before recovery begins.
+ * CS:GO weapon_recoil_cooldown = 0.55s — enforces tap-fire discipline. */
+#define SPRAY_DECAY_DELAY  0.45f
 /* Pattern indices recovered per second once decay starts (~2s for full 30-shot reset). */
 #define SPRAY_DECAY_RATE   15.0f
 
@@ -38,6 +38,8 @@ typedef struct {
     float    reset_timer;   /* time since last shot (for pattern reset) */
     float    reload_timer;  /* > 0 while reloading */
     float    shot_index;    /* position in spray pattern (float for smooth decay) */
+    float    swing_timer;   /* for melee animations */
+    int      swing_type;    /* 0=none, 1=light (left click), 2=heavy (right click) */
 } WeaponState;
 
 void   weapon_init(WeaponState *w);

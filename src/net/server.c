@@ -40,6 +40,8 @@ typedef struct {
     int                active_slot;        /* 0=primary, 1=pistol, 2=knife */
     int                money;
     double             last_seen;
+    uint8_t            shot_seq;
+    Vector3            last_shot_dir;
 } SrvClient;
 
 static const Vector3 CT_SPAWNS[5] = {
@@ -122,6 +124,9 @@ static void server_apply_shoot(SrvClient *clients, int shooter_id,
 {
     SrvClient *s      = &clients[shooter_id];
     Vector3    origin = s->player.position;
+
+    s->last_shot_dir = dir;
+    s->shot_seq++;
 
     RayHit wall   = map_raycast(map, origin, dir);
     float  wall_t = wall.hit ? wall.t : 1e30f;
@@ -391,6 +396,10 @@ static void server_send_world(int sock, SrvClient *clients, const RoundState *ro
         pkt.players[i].ammo2_reserve = (uint8_t)(clients[i].ammo_reserve_slot[1] > 0
                                                   ? clients[i].ammo_reserve_slot[1] : 0);
         pkt.players[i].active_slot   = (uint8_t)clients[i].active_slot;
+        pkt.players[i].shot_seq      = clients[i].shot_seq;
+        pkt.players[i].shot_dx       = clients[i].last_shot_dir.x;
+        pkt.players[i].shot_dy       = clients[i].last_shot_dir.y;
+        pkt.players[i].shot_dz       = clients[i].last_shot_dir.z;
     }
 
     float timer_val = (round->phase == PHASE_BUY) ? round->buy_timer : round->timer;
